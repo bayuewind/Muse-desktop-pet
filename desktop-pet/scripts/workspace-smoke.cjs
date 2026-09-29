@@ -48,6 +48,54 @@ async function runWorkspaceSmoke(window) {
     ] },
   };
   await send('composer:spaces', spaces);
+  const audioCheck = await execute(`(async()=>{
+    const deadline=async(promise,label)=>{
+      let timer;try{return await Promise.race([promise,new Promise((_,reject)=>{
+        timer=setTimeout(()=>reject(Error(label+JSON.stringify([...document.querySelectorAll('.audio-player audio')].map(a=>({
+          paused:a.paused,time:a.currentTime,ready:a.readyState,seeking:a.seeking,network:a.networkState,error:a.error?.code
+        }))))),5000);
+      })]);}finally{clearTimeout(timer);}
+    };
+    const bytes=new ArrayBuffer(44+48000), view=new DataView(bytes);
+    const word=(at,value)=>{for(let i=0;i<value.length;i++)view.setUint8(at+i,value.charCodeAt(i));};
+    word(0,'RIFF');view.setUint32(4,bytes.byteLength-8,true);word(8,'WAVE');word(12,'fmt ');
+    view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);
+    view.setUint32(24,24000,true);view.setUint32(28,48000,true);view.setUint16(32,2,true);view.setUint16(34,16,true);
+    word(36,'data');view.setUint32(40,48000,true);
+    const url=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));
+    let failed=false;
+    const player=window.museAudio.create(url,'Synthetic silent audio',()=>{failed=true;});
+    const otherPlayer=window.museAudio.create(url,'Second silent audio',()=>{failed=true;});
+    document.querySelector('#replies').append(player,otherPlayer);
+    window.lucide.createIcons();
+    const audio=player.querySelector('audio'), other=otherPlayer.querySelector('audio');
+    audio.muted=true;other.muted=true;
+    try {
+      await new Promise((resolve,reject)=>{
+        const timeout=setTimeout(()=>reject(Error('audio_metadata_timeout')),5000);
+        if(audio.readyState>=1){clearTimeout(timeout);resolve();}
+        else audio.addEventListener('loadedmetadata',()=>{clearTimeout(timeout);resolve();},{once:true});
+      });
+      const noAutoplay=audio.paused, duration=audio.duration;
+      const select=player.querySelector('select');select.value='1.5';select.dispatchEvent(new Event('change'));
+      await deadline(other.play(),'audio_first_play_timeout');await deadline(audio.play(),'audio_second_play_timeout');
+      const exclusive=other.paused;
+      audio.pause();audio.currentTime=0.6;
+      await player.querySelector('button').onclick();
+      const replayed=audio.currentTime<0.3&&!audio.paused;
+      return {noAutoplay,duration,speed:audio.playbackRate,exclusive,replayed,failed};
+    } catch(error) { return {diagnostic:error.message}; } finally {
+      for(const item of [audio,other]){item.pause();item.removeAttribute('src');item.load();}
+      player.remove();otherPlayer.remove();URL.revokeObjectURL(url);
+    }
+  })()`);
+  if (audioCheck.diagnostic) console.log('SYNTHETIC_AUDIO_DIAGNOSTIC', audioCheck.diagnostic);
+  assert.equal(audioCheck.noAutoplay, true, 'audio_autoplayed');
+  assert.equal(audioCheck.duration, 1, 'audio_not_decoded');
+  assert.equal(audioCheck.speed, 1.5, 'audio_speed_failed');
+  assert.equal(audioCheck.exclusive, true, 'audio_overlap');
+  assert.equal(audioCheck.replayed, true, 'audio_replay_failed');
+  assert.equal(audioCheck.failed, false, 'audio_playback_failed');
   await click('#tab-spaces');
   assert.equal(await execute('document.querySelectorAll("#spaces-list details").length'), 2, 'goal_rows_failed');
   assert.match(await text('#spaces-scope'), /列表不完整/);
@@ -110,6 +158,9 @@ async function runWorkspaceSmoke(window) {
   await execute(`document.querySelector('#tab-settings').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))`);
   assert.equal(await execute('document.body.dataset.view'), 'chat', 'keyboard_tab_navigation_failed');
   await input('#draft', 'Local smoke only; not transmitted');
+  await send('pet:state', { mode: 'native', kind: 'working', requiresApproval: true, label: '正在工作' });
+  assert.equal(await execute('document.querySelector("#send").disabled'), true, 'busy_approval_send_enabled');
+  await send('pet:state', { mode: 'native', kind: 'working', label: '正在工作' });
   await execute(`document.querySelector('#draft').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,bubbles:true}))`);
   await settle();
   assert.match(await text('#feedback'), /本次没有发送/, 'windows_send_shortcut_failed');
@@ -178,6 +229,6 @@ async function runWorkspaceSmoke(window) {
   await click('#tab-spaces');
   assert.equal(await execute('!!document.querySelector("#spaces-list img, #spaces-list script")'), false, 'unsafe_goal_html');
   assert.match(await text('#spaces-list'), /<img/);
-  console.log('WORKSPACE_SMOKE_PASS: navigation, search, filters, fresh/stale, goals/ideas, append-only drafts, inert content, keyboard, busy + approval, external allowlist, local files, synthetic screenshot crop/cancel, 11 screenshots');
+  console.log('WORKSPACE_SMOKE_PASS: navigation, search, filters, fresh/stale, goals/ideas, append-only drafts, inert content, keyboard, busy + approval, silent audio decode/speed/replay/exclusivity, external allowlist, local files, synthetic screenshot crop/cancel, 11 screenshots');
 }
 module.exports = { runWorkspaceSmoke };

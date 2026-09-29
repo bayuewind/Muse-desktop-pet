@@ -170,7 +170,7 @@ class NativeSource extends EventEmitter {
     const client = this.client, generation = this.generation;
     if (!client?.ready || client.closed) return { ok: false };
     try { const startedAt = Date.now(); const history = await client.request('chat.history', { limit: 20 });
-      if (generation !== this.generation) return { ok: false };
+      if (!this.running || generation !== this.generation || client !== this.client || client.closed) return { ok: false };
       this.replies.history(history, startedAt); return { ok: true };
     } catch { return { ok: false }; }
   }
@@ -196,6 +196,7 @@ class NativeSource extends EventEmitter {
     const client = this.client, generation = this.generation;
     return this.outgoing.submit(draft, {
       canSend: () => this.running && generation === this.generation && client?.ready && !client.closed && this.state.phase === 'connected' &&
+        !this.state.view().requiresApproval && !this.state.view().limited &&
         !['unknown','login','syncing','approval','limited'].includes(this.state.view().kind),
       dispatch: payload => client.sendChat(payload),
     });
@@ -216,6 +217,7 @@ class NativeSource extends EventEmitter {
       await voice.connect(credentials, pinnedStandardVerifier(this.vault.load().peerPolicy));
       if (!this.running || generation !== this.generation || voiceGeneration !== this.voiceGeneration) return { status: 'error', reason: 'cancelled' };
       const text = await voice.transcribePCM(pcm);
+      if (!this.running || generation !== this.generation || voiceGeneration !== this.voiceGeneration) return { status: 'error', reason: 'cancelled' };
       return { status: 'transcribed', text };
     } catch { return { status: 'error', reason: 'dictation_failed' }; }
     finally {

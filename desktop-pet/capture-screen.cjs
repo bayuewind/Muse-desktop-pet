@@ -1,5 +1,5 @@
 'use strict';
-async function captureScreen({ desktopCapturer, screen, composer, pet, current, restore, wait = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+async function captureScreen({ desktopCapturer, screen, composer, pet, current, canRestore = current, restore, wait = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
   const display = screen.getDisplayMatching(composer.getBounds());
   const wasPetVisible = pet && !pet.isDestroyed() && pet.isVisible();
   let timeout;
@@ -26,7 +26,7 @@ async function captureScreen({ desktopCapturer, screen, composer, pet, current, 
     return { ok: true, bytes, ...image.getSize() };
   } finally {
     clearTimeout(timeout);
-    if (current()) restore(wasPetVisible);
+    if (canRestore()) restore(wasPetVisible);
   }
 }
 module.exports = { captureScreen };

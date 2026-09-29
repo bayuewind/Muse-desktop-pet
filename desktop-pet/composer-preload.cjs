@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('composer', Object.freeze({
     ipcRenderer.on('composer:transition', listener); return () => ipcRenderer.removeListener('composer:transition', listener);
   },
   microphone: () => ipcRenderer.invoke('composer:microphone'),
+  cancelVoice: () => ipcRenderer.send('composer:cancel-voice'),
   transcribe: audio => ipcRenderer.invoke('composer:transcribe', audio),
   replies: () => ipcRenderer.invoke('composer:replies'),
   refreshReplies: () => ipcRenderer.invoke('composer:refresh-replies'),

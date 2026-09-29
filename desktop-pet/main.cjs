@@ -33,6 +33,7 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
 let petWindow, engine, tray, timer, quitting = false, polling = false, suspended = false;
 let composerWindow, shortcutAvailable = false, microphoneAllowedUntil = 0, voiceLease = null;
+let voicePermissionGeneration = 0;
 let accounts, accountAction = false;
 let petOrbit = null;
 let windowFollower = null;
@@ -82,8 +83,12 @@ function notifyWorkspace(snapshot) {
     activeNotifications.add(notification); notification.show();
   }
 }
-function cancelVoice() {
+function revokeVoice() {
+  voicePermissionGeneration++;
   microphoneAllowedUntil = 0; voiceLease = null; engine?.cancelDictation?.();
+}
+function cancelVoice() {
+  revokeVoice();
   if (composerWindow && !composerWindow.isDestroyed()) composerWindow.webContents.send('composer:hidden');
 }
 const { ComposerVisibility } = require('./composer-visibility.cjs');
@@ -556,6 +561,7 @@ ipcMain.handle('composer:official-page', async (event, key) => {
   catch { return { ok: false }; }
 });
 ipcMain.on('composer:hide', event => { if (isComposer(event)) hideComposer(); });
+ipcMain.on('composer:cancel-voice', event => { if (isComposer(event)) revokeVoice(); });
 ipcMain.on('composer:transition-done', (event, id) => { if (isComposer(event) && Number.isSafeInteger(id)) composerVisibility.complete(id); });
 ipcMain.handle('composer:replies', event => isComposer(event) ? engine?.replies?.snapshot() ?? { messages: [], unread: 0 } : null);
 ipcMain.handle('composer:refresh-replies', async event => isComposer(event) && nativeMode && !smoke && engine ? engine.refreshReplies() : { ok: false });
@@ -613,13 +619,14 @@ ipcMain.handle('composer:capture', async event => {
   }
   const operation = {}, generation = inputAttachments.generation, window = composerWindow;
   captureOperation = operation; cancelVoice();
-  const current = () => !quitting && generation === inputAttachments.generation &&
-    captureOperation === operation && composerWindow === window && !window.isDestroyed() && composerVisibility.open;
+  const owned = () => !quitting && generation === inputAttachments.generation &&
+    captureOperation === operation && composerWindow === window && !window.isDestroyed();
+  const current = () => owned() && composerVisibility.open;
   try {
-    return await require('./capture-screen.cjs').captureScreen({ desktopCapturer, screen, composer: window, pet: petWindow, current,
+    return await require('./capture-screen.cjs').captureScreen({ desktopCapturer, screen, composer: window, pet: petWindow, current, canRestore: owned,
       restore: wasPetVisible => {
         if (wasPetVisible && petWindow && !petWindow.isDestroyed()) petWindow.showInactive();
-        window.show(); window.focus();
+        if (composerVisibility.open) { window.show(); window.focus(); }
       } });
   } catch { return { ok: false }; }
   finally { if (captureOperation === operation) captureOperation = null; }
@@ -686,10 +693,12 @@ ipcMain.handle('composer:send', async (event, draft) => {
 });
 ipcMain.handle('composer:microphone', async event => {
   if (!isComposer(event) || !composerWindow.isVisible() || !composerWindow.isFocused() || !nativeMode || smoke) return { allowed: false };
+  const permissionGeneration = ++voicePermissionGeneration, window = composerWindow, source = engine;
   try {
     const granted = process.platform !== 'darwin' || systemPreferences.getMediaAccessStatus('microphone') === 'granted' ||
       await systemPreferences.askForMediaAccess('microphone');
-    if (!granted || !composerWindow?.isVisible()) return { allowed: false };
+    if (!granted || permissionGeneration !== voicePermissionGeneration || source !== engine ||
+        composerWindow !== window || window.isDestroyed() || !window.isVisible()) return { allowed: false };
     microphoneAllowedUntil = Date.now() + 30000;
     voiceLease = { id: randomUUID(), expiresAt: Date.now() + 120000 };
     return { allowed: true, id: voiceLease.id };
@@ -697,7 +706,10 @@ ipcMain.handle('composer:microphone', async event => {
 });
 ipcMain.handle('composer:transcribe', async (event, audio) => {
   if (!isComposer(event) || !composerWindow.isVisible() || !nativeMode || smoke || !voiceLease ||
-      audio?.permissionId !== voiceLease.id || Date.now() > voiceLease.expiresAt) return { status: 'error', reason: 'voice_not_authorized' };
+      audio?.permissionId !== voiceLease.id || Date.now() > voiceLease.expiresAt) {
+    if (audio?.samples instanceof ArrayBuffer) new Uint8Array(audio.samples).fill(0);
+    return { status: 'error', reason: 'voice_not_authorized' };
+  }
   voiceLease = null; microphoneAllowedUntil = 0;
   try { return await engine.transcribeAudio(audio); } catch { return { status: 'error', reason: 'dictation_failed' }; }
 });

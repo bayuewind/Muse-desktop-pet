@@ -28,10 +28,12 @@ function update() {
   voice.title = voiceLabel; voice.setAttribute('aria-label', voiceLabel);
   window.lucide?.createIcons();
   document.body.dataset.recording = String(!!recording);
-  recordingStrip.hidden = !recording;
+  recordingStrip.hidden = !recording && !transcribing && !requestingMic;
+  if (!recording) document.querySelector('#recording-label').textContent = transcribing ? '正在转写' : requestingMic ? '等待麦克风' : '';
 }
 function render(state) {
-  connected = state?.mode === 'native' && !['unknown','login','syncing','approval','limited'].includes(state.kind);
+  connected = state?.mode === 'native' && !state.requiresApproval && !state.limited &&
+    !['unknown','login','syncing','approval','limited'].includes(state.kind);
   document.body.dataset.connected = String(connected);
   document.querySelector('#connection').textContent = state?.label || '等待原生连接';
   if (state?.shortcutAvailable === false) document.querySelector('#shortcut').textContent = '快捷键被占用，可从菜单栏打开';
@@ -98,7 +100,7 @@ async function stopRecording(transcribe) {
       revision++; currentDraftId = crypto.randomUUID();
       note('已转成文字。请检查、编辑后点击“发送任务”。', 'success'); draft.focus();
     } else note(result?.status === 'transcribed' ? '没有识别到语音，请再试一次。' : 'Muse 转写暂不可用，请重连后再试；没有发送任何任务。', 'error');
-  } catch { note('录音或转写失败，没有发送任务。', 'error'); }
+  } catch { if (op === operation) note('录音或转写失败，没有发送任务。', 'error'); }
   finally { clearSamples(capture); if (op === operation) transcribing = false; update(); }
 }
 async function beginRecording() {
@@ -107,6 +109,7 @@ async function beginRecording() {
   let stream, context, capture;
   try {
     const permission = await window.composer.microphone();
+    if (op !== operation) return;
     if (!permission?.allowed) { note('麦克风未授权。请在系统设置 → 隐私与安全性 → 麦克风中允许 Electron。', 'error'); return; }
     if (op !== operation || !document.hasFocus()) { note('已获得权限，请回到输入框再点录音。'); return; }
     stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false });
@@ -121,7 +124,10 @@ async function beginRecording() {
       if (event.data.limit && recording === capture) void stopRecording(true);
     };
     if (op !== operation || !document.hasFocus()) { stream.getTracks().forEach(track => track.stop()); await context.close(); return; }
-    recording = capture; source.connect(node); node.connect(context.destination); await deadline(context.resume(), 5000);
+    recording = capture;
+    document.querySelector('#recording-label').textContent = '正在录音 0s / 60s';
+    source.connect(node); node.connect(context.destination); await deadline(context.resume(), 5000);
+    if (op !== operation || recording !== capture) return;
     capture.timer = setInterval(() => {
       const elapsed = Math.floor((Date.now()-capture.started)/1000);
       document.querySelector('#recording-label').textContent = `正在录音 ${elapsed}s / 60s`;
@@ -131,15 +137,20 @@ async function beginRecording() {
   } catch {
     if (capture) { clearInterval(capture.timer); capture.node.port.onmessage = null; capture.node.port.close(); clearSamples(capture); }
     stream?.getTracks().forEach(track => track.stop()); if (context && context.state !== 'closed') await context.close();
-    recording = null; note('无法开启麦克风，请检查系统授权或设备。', 'error');
-  } finally { requestingMic = false; update(); }
+    if (op === operation) { recording = null; note('无法开启麦克风，请检查系统授权或设备。', 'error'); }
+  } finally { if (op === operation) requestingMic = false; update(); }
 }
-function cancelAudio() {
+function cancelAudio(notify = true) {
   operation++; requestingMic = false; transcribing = false;
   void stopRecording(false); update();
+  if (notify) window.composer.cancelVoice();
 }
 voice.addEventListener('click', () => { if (recording) void stopRecording(true); else void beginRecording(); });
-document.querySelector('#cancel-recording').addEventListener('click', () => { cancelAudio(); note('录音已取消，没有上传或发送任务。'); });
+document.querySelector('#cancel-recording').addEventListener('click', () => {
+  const wasTranscribing = transcribing;
+  cancelAudio();
+  note(wasTranscribing ? '转写已取消，不会采用返回结果；已上传的音频无法撤回。' : '录音已取消，没有上传或发送任务。');
+});
 send.addEventListener('click', () => void submit());
 document.querySelector('#close').addEventListener('click', () => { cancelAudio(); window.composer.hide(); });
 document.addEventListener('keydown', event => {
@@ -151,7 +162,7 @@ document.addEventListener('keydown', event => {
 });
 window.addEventListener('blur', () => { if (recording) { cancelAudio(); note('切换窗口已取消录音，没有上传。'); } });
 window.addEventListener('beforeunload', cancelAudio);
-window.composer.onHidden(cancelAudio);
+window.composer.onHidden(() => cancelAudio(false));
 window.composer.onFocus(() => { if (document.body.dataset.view === 'chat') draft.focus(); });
 document.addEventListener('composer:view-change', event => {
   if (event.detail !== 'chat') cancelAudio();

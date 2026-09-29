@@ -39,3 +39,9 @@ test('account changes before capture prevent reading pixels or restoring an old 
   await assert.rejects(captureScreen(options), /cancelled/);
   assert.equal(events.includes('capture'), false); assert.equal(events.includes('restore'), false);
 });
+test('closing chat during capture still restores the owned pet without reading pixels', async () => {
+  const { events, options } = setup();
+  options.current = () => false; options.canRestore = () => true;
+  await assert.rejects(captureScreen(options), /cancelled/);
+  assert.equal(events.includes('capture'), false); assert.equal(events.at(-1), 'restore');
+});

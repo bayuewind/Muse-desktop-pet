@@ -12,12 +12,12 @@ class NativeStatus {
   }
   heartbeat(now = Date.now()) { this.pingAt = now; this.phase = 'connected'; }
   agent(payload, meta = {}) {
-    if (!payload || typeof payload.agent_id !== 'string' || !KNOWN.has(payload.activity_code)) return;
+    if (!payload || typeof payload.agent_id !== 'string' || !payload.agent_id || payload.agent_id.length > 512) return;
     if (this.agents.size > 1024) { this.phase = 'unknown'; return; }
     if (!this.primaryId && meta.source === 'chat.subscribe' && payload.is_thread !== true) this.primaryId = payload.agent_id;
     const old = this.agents.get(payload.agent_id);
     if (Number.isSafeInteger(meta.seq) && old?.seq != null && meta.seq <= old.seq) return;
-    this.agents.set(payload.agent_id, { code: payload.activity_code, seq: meta.seq });
+    this.agents.set(payload.agent_id, { code: KNOWN.has(payload.activity_code) ? payload.activity_code : 'unknown', seq: meta.seq });
   }
   polls({ runs, schedules, subagents }, now = Date.now()) {
     if (!Array.isArray(runs?.runs) || !Array.isArray(schedules?.schedules) || !Number.isSafeInteger(subagents?.active_count) || subagents.active_count < 0) throw new Error('status_schema_changed');
@@ -41,7 +41,9 @@ class NativeStatus {
     this.subagents = subagents.active_count; this.runCount = runs.runs.length; this.pollAt = now;
   }
   view(now = Date.now()) {
+    const codes = [...this.agents.values()].map(a => a.code);
     const base = { mode: 'native', variant: 'static', scope: '主会话、子任务及最近任务运行记录；不是全量历史保证',
+      requiresApproval: codes.includes('needs_approval'), limited: codes.includes('out_of_credits'),
       schedules: this.scheduleCount, recentRuns: this.runCount,
       nextRunInSeconds: this.nextRunAt ? Math.max(0, Math.ceil((this.nextRunAt-now)/1000)) : null };
     const state = (kind, label, detail, variant = 'static') => ({ ...base, kind, label, detail, variant });
@@ -51,8 +53,7 @@ class NativeStatus {
     if (this.phase !== 'connected' || !this.pingAt || now-this.pingAt > 45000 || now < this.pingAt) {
       return state('unknown',this.phase === 'connecting' ? '原生连接中' : '原生连接已断开','云端任务可能仍在运行');
     }
-    const codes = [...this.agents.values()].map(a => a.code);
-    const freshPoll = this.pollAt > 0 && now-this.pollAt < 35000;
+    const freshPoll = this.pollAt > 0 && now >= this.pollAt && now-this.pollAt < 35000;
     const activeRuns = freshPoll ? [...this.runs].filter(([id, status]) => this.presentRunIds.has(id) && status === 'running').length : 0;
     const busy = codes.some(code => BUSY.has(code));
     if (busy || activeRuns || (freshPoll && this.subagents > 0)) {
@@ -63,7 +64,8 @@ class NativeStatus {
     if (codes.includes('needs_approval')) return state('approval','需要你的批准','原生事件 · 请在 Muse 中处理');
     if (codes.includes('waiting_for_user')) return state('waiting','等你回应','原生事件 · 当前活动等待输入');
     if (codes.includes('out_of_credits')) return state('limited','用量已耗尽','原生事件 · 不代表任务成功结束');
-    if (!freshPoll || !this.primaryId || this.agents.get(this.primaryId)?.code !== 'online' || this.missingRuns || !this.runCodesKnown) {
+    if (!freshPoll || !this.primaryId || this.agents.get(this.primaryId)?.code !== 'online' ||
+        codes.includes('unknown') || this.missingRuns || !this.runCodesKnown) {
       return state('syncing','正在同步任务状态','缺少新快照时不推断空闲');
     }
     const queued = [...this.runs.values()].some(s => ['pending','queued'].includes(s));

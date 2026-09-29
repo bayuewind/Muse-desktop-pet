@@ -50,8 +50,8 @@
           const image=document.createElement('img');image.alt=asset.name;image.src=url;
           image.onerror=()=>{note.textContent='图片解码失败，请保存后查看。';};preview.append(image);note.textContent='';
         } else {
-          const audio=document.createElement('audio');audio.controls=true;audio.preload='metadata';audio.src=url;
-          audio.onerror=()=>{note.textContent='此音频暂不可播放，请保存后查看。';};preview.append(audio);note.textContent='点击播放，不会自动播放。';
+          preview.append(window.museAudio.create(url,asset.name,()=>{note.textContent='此音频暂不可播放，请保存后查看。';}));
+          window.lucide?.createIcons();note.textContent='';
         }
         load.textContent='已加载';
       } catch {note.textContent='读取失败，请检查连接。';load.disabled=false;}
