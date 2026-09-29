@@ -21,6 +21,7 @@ let petWindow, engine, tray, timer, quitting = false, polling = false, suspended
 let composerWindow, shortcutAvailable = false, microphoneAllowedUntil = 0, voiceLease = null;
 let accounts, accountAction = false;
 let petOrbit = null;
+let windowFollower = null;
 let composerCreating = null, composerOrigin = { x:100, y:30 };
 let resetNeeded = false, lifecycle = 0, sample = null, receivedAt = 0;
 let currentState = deriveState({ sourceReady: false });
@@ -70,9 +71,13 @@ function setPetOrbit(expanded) {
   const layout = require('./pet-layout.cjs');
   if (expanded && !petOrbit) {
     const opened = layout.expand(bounds, area); petOrbit = { original:bounds, opened };
-    petWindow.setBounds(opened);
+    if (windowFollower) windowFollower.moveSilently(() => petWindow.setBounds(opened));
+    else petWindow.setBounds(opened);
   } else if (!expanded && petOrbit) {
-    petWindow.setBounds(layout.collapse(bounds, petOrbit.original, petOrbit.opened, area)); petOrbit = null;
+    const closed = layout.collapse(bounds, petOrbit.original, petOrbit.opened, area);
+    if (windowFollower) windowFollower.moveSilently(() => petWindow.setBounds(closed));
+    else petWindow.setBounds(closed);
+    petOrbit = null;
   }
   petWindow.webContents.send('pet:orbit', Boolean(petOrbit));
   return Boolean(petOrbit);
@@ -256,6 +261,10 @@ async function createWindows() {
       contextIsolation: true, sandbox: true, backgroundThrottling: false, webSecurity: true },
   });
   petWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  const { WindowFollower } = require('./window-follower.cjs');
+  windowFollower = new WindowFollower({ anchor: () => petWindow, follower: () => composerWindow,
+    enabled: () => !quitting && composerVisibility.open });
+  petWindow.on('move', () => windowFollower.moved());
   petWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   petWindow.webContents.on('will-navigate', (event) => event.preventDefault());
   petWindow.on('close', (event) => { if (!quitting) { event.preventDefault(); petWindow.hide(); } });
@@ -370,6 +379,22 @@ async function runSmoke() {
     await new Promise(resolve => setTimeout(resolve, 350));
     const preserved = await composerWindow.webContents.executeJavaScript(`document.querySelector('#draft').value==='retained local fixture' && getComputedStyle(document.querySelector('main')).opacity==='1'`);
     if (!composerWindow.isVisible() || !preserved) throw new Error('reopen_lost_draft_or_animation');
+    const originalPet = petWindow.getBounds(), originalChat = composerWindow.getBounds();
+    composerWindow.setPosition(originalChat.x-8, originalChat.y, false);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const independentChat = composerWindow.getBounds();
+    if (petWindow.getBounds().x !== originalPet.x || petWindow.getBounds().y !== originalPet.y) throw new Error('chat_moved_pet');
+    petWindow.setPosition(originalPet.x-16, originalPet.y-8, false);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const movedPet = petWindow.getBounds(), followedChat = composerWindow.getBounds();
+    if (followedChat.x-independentChat.x !== movedPet.x-originalPet.x || followedChat.y-independentChat.y !== movedPet.y-originalPet.y) throw new Error('chat_did_not_follow_pet');
+    setPetOrbit(true);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const afterOrbit = composerWindow.getBounds();
+    if (afterOrbit.x !== followedChat.x || afterOrbit.y !== followedChat.y) throw new Error('orbit_shifted_chat');
+    setPetOrbit(false);
+    windowFollower.moveSilently(() => petWindow.setBounds(originalPet));
+    composerWindow.setBounds(originalChat);
     const composerChecks = await composerWindow.webContents.executeJavaScript(`(async () => {
       const draft=document.querySelector('#draft');
       const noInitialAudio=!document.querySelector('#recording').checkVisibility();
@@ -393,7 +418,7 @@ async function runSmoke() {
         feed.textContent.includes('<img src=x onerror=alert(1)>');
     })()`);
     if (!repliesSafe) throw new Error('unsafe_reply_rendering');
-    console.log('SMOKE_PASS: pet + composer + reply/file cards + safe code rendering + audio worklet; no microphone opened; no message sent; sandbox/isolation enabled');
+    console.log('SMOKE_PASS: pet + composer toggle/motion + native window following + reply/file cards + audio worklet; no microphone opened; no message sent; sandbox/isolation enabled');
     app.quit();
   } catch { console.error('SMOKE_FAIL'); app.exit(1); }
 }
