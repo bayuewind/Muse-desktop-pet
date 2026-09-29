@@ -5,6 +5,7 @@ const WebSocket = require('ws');
 const { NoiseXXInitiator } = require('./noise-xx.cjs');
 const { NoiseWire, encode } = require('./wire.cjs');
 const { SubscriptionDecoder } = require('./subscription.cjs');
+const { DictationDecoder, RATE, MAX_SECONDS } = require('./audio.cjs');
 const ROUTES = Object.freeze({
   'connection.ping': ['POST', '/api/ping'],
   'activity.list': ['GET', '/activity'],
@@ -138,21 +139,62 @@ class NativeGateway extends EventEmitter {
   }
   request(method, params = {}) {
     if (!Object.hasOwn(ROUTES, method)) return Promise.reject(new Error('read_only_method_required'));
-    if (!this.ready || this.closed) return Promise.reject(new Error('gateway_not_ready'));
+    return this.requestRoute(method, ROUTES[method], params);
+  }
+  // Explicit interaction-only entry point, never exposed through request().
+  sendChat(params) {
+    if (typeof params?.message !== 'string' || !params.message.trim() || Buffer.byteLength(params.message) > 32768) {
+      const error = new Error('invalid_message'); error.deliveryState = 'not_sent'; return Promise.reject(error);
+    }
+    return this.requestRoute('chat.stream', ['POST', '/chat/stream', true],
+      { message: params.message, capabilities: [] }, { command: true });
+  }
+  requestRoute(method, route, params = {}, { command = false } = {}) {
+    if (!this.ready || this.closed) { const error = new Error('gateway_not_ready'); error.deliveryState = 'not_sent'; return Promise.reject(error); }
     if (this.pending.size >= 128) return Promise.reject(new Error('request_capacity'));
-    const [verb, path, subscription] = ROUTES[method];
+    const [verb, path, subscription] = route;
     let request;
     try { request = this.wire.request(verb, path, params); } catch { this.close('encode_failed'); return Promise.reject(new Error('encode_failed')); }
     return new Promise((resolve, reject) => {
-      const entry = { method, subscription, resolve, reject, body: [], size: 0, status: null, decoder: null };
-      const settle = value => { clearTimeout(entry.timer); resolve(value); };
-      entry.timer = setTimeout(() => { reject(new Error('request_timeout')); this.close('request_timeout'); }, 30000);
+      const entry = { method, subscription, command, commandAcked: false, resolve, reject, body: [], size: 0, status: null, decoder: null };
+      const settle = value => {
+        if (command && (typeof value?.message_id !== 'string' || !value.message_id)) return;
+        entry.commandAcked = command; clearTimeout(entry.timer); resolve(value);
+      };
+      entry.timer = setTimeout(() => {
+        reject(new Error(command ? 'delivery_unconfirmed' : 'request_timeout'));
+        if (command) entry.discard = true; else this.close('request_timeout');
+      }, 30000);
       if (subscription) entry.decoder = new SubscriptionDecoder({ onAck: settle,
         onEvent: (type, payload, meta) => this.emit('status-event', type, payload, { ...meta, source: method }),
         onDiagnostic: shape => this.emit('diagnostic', { step: 'subscription_record_shape', method, ...shape }) });
       this.pending.set(request.streamId, entry);
       try { for (const frame of request.frames) this.socket.send(frame); }
       catch { this.close('gateway_send_failed'); }
+    });
+  }
+  transcribePCM(pcm) {
+    if (!this.ready || this.closed || !Buffer.isBuffer(pcm) || pcm.length % 2 || pcm.length < RATE*0.15*2 || pcm.length > RATE*MAX_SECONDS*2) return Promise.reject(new Error('invalid_audio_or_connection'));
+    const request = this.wire.startDictation();
+    return new Promise((resolve, reject) => {
+      const entry = { method: 'voice.dictation', voice: true, status: null, resolve, reject, uploading: false,
+        decoder: new DictationDecoder(text => { clearTimeout(entry.timer); resolve(text); }) };
+      entry.timer = setTimeout(() => { reject(new Error('dictation_timeout')); this.close('dictation_timeout'); }, 60000);
+      entry.onOpen = async () => {
+        if (entry.uploading) return; entry.uploading = true;
+        try {
+          for (let offset = 0; offset < pcm.length; offset += 16384) {
+            if (this.closed) throw new Error('dictation_closed');
+            for (const frame of this.wire.bodyChunk(request.streamId, pcm.subarray(offset, offset+16384))) {
+              await new Promise((done, fail) => this.socket.send(frame, error => error ? fail(new Error('dictation_send_failed')) : done()));
+            }
+          }
+          if (!this.closed) for (const frame of this.wire.bodyChunk(request.streamId, Buffer.alloc(0), true)) this.socket.send(frame);
+        } catch { reject(new Error('dictation_send_failed')); this.close('dictation_send_failed'); }
+      };
+      this.pending.set(request.streamId, entry);
+      try { for (const frame of request.frames) this.socket.send(frame); }
+      catch { this.close('dictation_send_failed'); }
     });
   }
   dispatch(frame) {
@@ -163,7 +205,11 @@ class NativeGateway extends EventEmitter {
       if (frame.kind === 'reset' || frame.value.endBody) this.pending.delete(frame.streamId);
       return;
     }
-    if (frame.kind === 'reset') { this.close('subscription_reset'); return; }
+    if (frame.kind === 'reset') {
+      if (entry.command) { clearTimeout(entry.timer); entry.reject(new Error('delivery_unconfirmed')); this.pending.delete(frame.streamId); }
+      else this.close('subscription_reset');
+      return;
+    }
     let bytes, end;
     if (frame.kind === 'response') {
       entry.status = frame.value.status;
@@ -182,7 +228,8 @@ class NativeGateway extends EventEmitter {
         return;
       }
       bytes = frame.value.body; end = frame.value.endBody;
-      if (entry.subscription && !end) {
+      if (entry.voice) void entry.onOpen();
+      if (entry.subscription && !end && !entry.command) {
         // An open 2xx stream is already admitted. Some channels send no ACK
         // until the next scheduled event, which may be minutes later.
         clearTimeout(entry.timer);
@@ -192,11 +239,16 @@ class NativeGateway extends EventEmitter {
       if (entry.status == null) throw new Error('body_before_response');
       bytes = frame.value.data; end = frame.value.endBody;
     }
-    if (entry.subscription) {
+    if (entry.voice) {
+      entry.decoder.push(bytes, end);
+    } else if (entry.subscription) {
       entry.decoder.push(bytes, end);
       // Muse permits a completed response containing the ACK followed by event
       // chunks on the same stream. A subsequent stream end requires resubscribe.
-      if (end && frame.kind === 'bodyChunk') this.close('subscription_ended');
+      if (entry.command && end) {
+        clearTimeout(entry.timer); this.pending.delete(frame.streamId);
+        if (!entry.commandAcked) entry.reject(new Error('delivery_unconfirmed'));
+      } else if (end && frame.kind === 'bodyChunk') this.close('subscription_ended');
     } else {
       entry.size += bytes.length;
       if (entry.size > 4 * 1024 * 1024) throw new Error('response_limit');

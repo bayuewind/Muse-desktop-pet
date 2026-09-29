@@ -4,10 +4,13 @@ const { NativeAuth } = require('./auth.cjs');
 const { NativeGateway, pinnedStandardVerifier } = require('./gateway-client.cjs');
 const { NativeStatus } = require('./status.cjs');
 const { reauthenticateStandardPeer } = require('./peer-renewal.cjs');
+const { OutgoingTasks } = require('./outgoing.cjs');
+const { toDictationPCM } = require('./audio.cjs');
 class NativeSource extends EventEmitter {
   constructor(vault) {
     super(); this.vault = vault; this.state = new NativeStatus(); this.generation = 0;
     this.client = null; this.timers = new Set(); this.retryTimer = null; this.running = false; this.lastLog = '';
+    this.outgoing = new OutgoingTasks();
   }
   publish() {
     const view = this.state.view(); this.emit('state', view);
@@ -101,9 +104,47 @@ class NativeSource extends EventEmitter {
     if (!identity && !authRequired) this.retryTimer = setTimeout(() => void this.connect(generation, Math.min(30000, retry*2)), retry);
   }
   async reload() { await this.stop(); return this.start(); }
+  submitTask(draft) {
+    const client = this.client, generation = this.generation;
+    return this.outgoing.submit(draft, {
+      canSend: () => this.running && generation === this.generation && client?.ready && !client.closed && this.state.phase === 'connected' &&
+        !['unknown','login','syncing','approval','limited'].includes(this.state.view().kind),
+      dispatch: payload => client.sendChat(payload),
+    });
+  }
+  async transcribeAudio(audio) {
+    if (!this.running || !this.client?.ready || this.voiceInProgress) {
+      if (audio?.samples instanceof ArrayBuffer) new Uint8Array(audio.samples).fill(0);
+      return { status: 'error', reason: 'not_connected_or_busy' };
+    }
+    this.voiceInProgress = true;
+    const voiceGeneration = this.voiceGeneration = (this.voiceGeneration ?? 0) + 1;
+    const generation = this.generation; let pcm, voice;
+    try {
+      pcm = toDictationPCM(audio);
+      const auth = new NativeAuth(this.vault), credentials = await auth.credentials();
+      if (!this.running || generation !== this.generation || voiceGeneration !== this.voiceGeneration) return { status: 'error', reason: 'cancelled' };
+      voice = new NativeGateway(); this.voiceClient = voice;
+      await voice.connect(credentials, pinnedStandardVerifier(this.vault.load().peerPolicy));
+      if (!this.running || generation !== this.generation || voiceGeneration !== this.voiceGeneration) return { status: 'error', reason: 'cancelled' };
+      const text = await voice.transcribePCM(pcm);
+      return { status: 'transcribed', text };
+    } catch { return { status: 'error', reason: 'dictation_failed' }; }
+    finally {
+      voice?.close(); pcm?.fill(0);
+      if (audio?.samples instanceof ArrayBuffer) new Uint8Array(audio.samples).fill(0);
+      if (this.voiceClient === voice) this.voiceClient = null;
+      if (voiceGeneration === this.voiceGeneration) this.voiceInProgress = false;
+    }
+  }
+  cancelDictation() {
+    this.voiceGeneration = (this.voiceGeneration ?? 0) + 1;
+    this.voiceClient?.close('dictation_cancelled'); this.voiceClient = null; this.voiceInProgress = false;
+  }
   async pause() { await this.stop(); this.state.reset('suspended'); this.publish(); }
   async stop() {
     this.running = false; this.generation++; this.clearTimers(); this.client?.close(); this.client = null;
+    this.cancelDictation();
   }
 }
 module.exports = { NativeSource };

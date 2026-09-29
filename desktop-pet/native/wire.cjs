@@ -64,6 +64,19 @@ class NoiseWire {
     const frames = chunks(encode('ServiceRequest', { service: 0, payload })).map(bytes => this.send.encrypt(bytes));
     return { streamId, frames };
   }
+  startDictation() {
+    const streamId = this.nextId++;
+    const payload = encode('Frame', { streamId, request: { verb: 'POST',
+      path: '/api/voice/dictation?sample_rate_hz=24000',
+      headers: [{ key: 'x-app-id', value: 'hatch-web' }, { key: 'Accept-Language', value: 'en-US' }],
+      body: Buffer.alloc(0), endBody: false } });
+    const frames = chunks(encode('ServiceRequest', { service: 0, payload })).map(bytes => this.send.encrypt(bytes));
+    return { streamId, frames };
+  }
+  bodyChunk(streamId, data, endBody = false) {
+    const payload = encode('Frame', { streamId, bodyChunk: { data, endBody } });
+    return chunks(encode('ServiceRequest', { service: 0, payload })).map(bytes => this.send.encrypt(bytes));
+  }
   accept(ciphertext) {
     const assembled = this.assembler.accept(this.receive.decrypt(ciphertext));
     if (!assembled) return null;

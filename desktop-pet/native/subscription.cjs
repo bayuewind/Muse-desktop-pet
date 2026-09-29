@@ -22,8 +22,9 @@ class SubscriptionDecoder {
         ts_ms: Number.isFinite(record.ts_ms) ? record.ts_ms : null,
       });
     } else {
-      if (this.acked || record.ok === false || record.error) throw new Error('subscription_rejected');
-      this.acked = true; this.onAck(record.result ?? record);
+      if (this.acked || record.ok === false || record.status === 'err' || record.error) throw new Error('subscription_rejected');
+      this.acked = true;
+      this.onAck(record.type === 'res' && record.status === 'ok' ? record.payload : record.result ?? record);
     }
   }
   push(bytes, end = false) {

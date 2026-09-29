@@ -7,9 +7,12 @@
 - `noise-xx.cjs`：Noise XX / X25519 / AES-256-GCM / SHA-256。三轮握手、握手哈希、双向传输与 noise-c 独立测试向量逐字节一致；认证失败后作废密钥状态。
 - `wire.cjs`：Muse Noise protobuf 请求 / 响应、流 ID、分片组装与字节上限。
 - `subscription.cjs`：增量 UTF-8 / NDJSON 解析，只传递状态事件，丢弃聊天和工具输出事件。
-- `gateway-client.cjs`：仅连接固定的官方 `hatch.metaaivm.com/v1/noise`；保留 TLS 校验；仅允许状态查询、订阅与保活，不允许发消息、取消任务、审批或删除。
+- `gateway-client.cjs`：仅连接固定的官方 `hatch.metaaivm.com/v1/noise`；保留 TLS 校验。通用 `request()` 仍只允许状态查询、订阅与保活；新增独立的 `sendChat()` / `transcribePCM()` 仅由本机输入面板的用户操作调用。不提供取消任务、自动审批或删除入口。
 - `activity-model.cjs`：按智能体分别记录状态；一个智能体的 `online` 不会把另一个正在工作的智能体清成空闲。连接断开、心跳过期或覆盖不完整时显示未知。
 - `monitor.cjs`：浏览器无关 CLI、重连退避、保活、脱敏状态输出。
+- `outgoing.cjs` / `audio.cjs`：文字投递去重、明确确认与未知结果处理、24k PCM 转换及语音最终转写解析。任务和音频不写入日志或本地文件。
+
+文字协议参考当前公开客户端 `14hyzlnci3o9o.js` 的 `chat.stream`（`message`、`capabilities` 与返回 `message_id`）；语音协议参考 `3qxdrzta9l34d.js` 的 `/api/voice/dictation?sample_rate_hz=24000`，使用独立 Noise 流、PCM16 LE、BodyChunk 和 `partial/final/error` 记录。未用真实消息或实际录音进行开发测试。
 
 `npm run native` 启动原生桌宠，使用用户已批准的本机加密会话。只读 stdin 的开发 CLI 保留为 `npm run native:stdin`；它不会自动发现凭据。原生连接失败不会回退启动浏览器。
 

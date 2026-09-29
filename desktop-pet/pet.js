@@ -30,5 +30,6 @@ still.addEventListener('error', () => { still.hidden = true; });
 motion.addEventListener('change', () => render(latest));
 document.querySelector('#open').addEventListener('click', () => window.pet.openMuse());
 document.querySelector('#hide').addEventListener('click', () => window.pet.hide());
+document.querySelector('#portrait').addEventListener('click', () => window.pet.compose());
 window.pet.onState(render);
 void window.pet.getState().then(render);

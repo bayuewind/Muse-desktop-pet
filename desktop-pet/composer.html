@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https://muse.ai; media-src blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'; worker-src 'self'">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>给 Muse 下达任务</title>
+  <link rel="stylesheet" href="composer.css">
+</head>
+<body>
+  <main>
+    <header>
+      <img src="https://muse.ai/avatars/hatch.jpg" alt="" width="36" height="36">
+      <div><strong>想让 Muse 做什么？</strong><small><span id="connection-dot"></span><span id="connection">正在连接</span> · 主会话</small></div>
+      <button id="close" aria-label="收起输入框" title="Esc 收起">×</button>
+    </header>
+    <label class="sr-only" for="draft">任务内容</label>
+    <textarea id="draft" maxlength="8000" placeholder="输入任务，或点击麦克风说出来…" spellcheck="false"></textarea>
+    <div class="recording" id="recording" hidden><span class="pulse"></span><span id="recording-label">正在录音</span><button id="cancel-recording">取消</button></div>
+    <div class="feedback" id="feedback" role="status" aria-live="polite">语音先转成文字，确认后才会发送任务。</div>
+    <footer>
+      <button class="voice" id="voice" title="录音并转成文字" aria-label="开始语音输入"><span aria-hidden="true">●</span> 语音输入</button>
+      <span id="count">0 / 8000</span>
+      <button class="send" id="send" disabled>发送任务 <kbd>⌘↵</kbd></button>
+    </footer>
+    <p class="privacy">停止录音后交给 Muse 转写，本机不保存音频；确认文字后才下达任务。</p>
+    <div class="bottom"><span id="shortcut">⌘⇧M 快速呼出</span><span>Enter 换行 · Esc 收起</span></div>
+  </main>
+  <script src="composer.js"></script>
+</body>
+</html>
