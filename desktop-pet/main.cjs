@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, screen, powerMonitor, safeStorage, globalShortcut, systemPreferences } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, screen, powerMonitor, safeStorage, globalShortcut, systemPreferences, dialog, clipboard } = require('electron');
 const { randomUUID } = require('node:crypto');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -46,7 +46,7 @@ async function showComposer() {
   if (composerWindow.isMinimized()) composerWindow.restore();
   const anchor = petWindow?.getBounds() ?? { x: 300, y: 300, width: 256, height: 306 };
   const area = screen.getDisplayMatching(anchor).workArea;
-  const width = 460, height = 410;
+  const width = Math.min(580, area.width-16), height = Math.min(730, area.height-16);
   let x = anchor.x - width - 14;
   if (x < area.x) x = anchor.x + anchor.width + 14;
   x = Math.max(area.x + 8, Math.min(x, area.x + area.width - width - 8));
@@ -54,11 +54,13 @@ async function showComposer() {
   composerWindow.setBounds({ x, y, width, height });
   composerWindow.show(); composerWindow.focus();
   composerWindow.webContents.send('pet:state', composerState());
+  composerWindow.webContents.send('composer:replies', engine?.replies?.snapshot() ?? { messages: [], unread: 0 });
+  composerWindow.webContents.focus();
   composerWindow.webContents.send('composer:focus');
 }
 async function createComposer() {
-  composerWindow = new BrowserWindow({ width: 460, height: 410, title: '给 Muse 下达任务', frame: false,
-    backgroundColor: '#fcfcf6', resizable: false, show: false, alwaysOnTop: true,
+  composerWindow = new BrowserWindow({ width: 580, height: 730, minWidth: 440, minHeight: 540, title: 'Muse 会话', frame: false,
+    backgroundColor: '#fcfcf6', resizable: true, show: false, alwaysOnTop: true,
     webPreferences: { preload: path.join(__dirname, 'composer-preload.cjs'), partition: 'muse-local-composer',
       nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true },
   });
@@ -187,6 +189,11 @@ async function createWindows() {
     const { NativeSource } = require('./native/source.cjs');
     engine = new NativeSource(new CredentialVault(app.getPath('userData'), safeStorage));
     engine.on('state', state => { nativeState = state; publish(); });
+    engine.on('replies', replies => {
+      if (quitting) return;
+      if (petWindow && !petWindow.isDestroyed()) petWindow.webContents.send('pet:unread', replies.unread);
+      if (composerWindow && !composerWindow.isDestroyed()) composerWindow.webContents.send('composer:replies', replies);
+    });
     await engine.start(); return;
   }
   const { ChromeEngine } = require('./chrome-engine.cjs');
@@ -227,7 +234,19 @@ async function runSmoke() {
       return {hasDraft:!!draft,noInitialAudio,micDenied:!denied.allowed,notSent:submission.status==='not_sent',workletLoaded:true};
     })()`);
     if (!Object.values(composerChecks).every(Boolean)) throw new Error('unsafe_composer');
-    console.log('SMOKE_PASS: pet states + composer + audio worklet; no microphone opened; no message sent; sandbox/isolation enabled');
+    composerWindow.webContents.send('composer:replies', { unread: 1, messages: [{
+      id: 'smoke-reply', role: 'assistant', state: 'done', text: '<img src=x onerror=alert(1)>\n```python\nprint(1)\n```',
+      attachments: ['image','audio','code','file'].map((kind,index) => ({ id: String(index).padStart(24,'0'), kind, name: `fixture-${kind}`, size: 20 })),
+    }] });
+    await new Promise(resolve => setTimeout(resolve, 200));
+    const repliesSafe = await composerWindow.webContents.executeJavaScript(`(() => {
+      const feed=document.querySelector('#replies');
+      return feed.querySelectorAll('.reply').length===1 && feed.querySelectorAll('.attachment').length===4 &&
+        feed.querySelectorAll('.code-box').length===1 && !feed.querySelector('img,script,audio,iframe') &&
+        feed.textContent.includes('<img src=x onerror=alert(1)>');
+    })()`);
+    if (!repliesSafe) throw new Error('unsafe_reply_rendering');
+    console.log('SMOKE_PASS: pet + composer + reply/file cards + safe code rendering + audio worklet; no microphone opened; no message sent; sandbox/isolation enabled');
     app.quit();
   } catch { console.error('SMOKE_FAIL'); app.exit(1); }
 }
@@ -238,6 +257,47 @@ ipcMain.on('pet:hide', event => { if (isPet(event)) petWindow.hide(); });
 ipcMain.on('pet:compose', event => { if (isPet(event)) void showComposer(); });
 ipcMain.handle('composer:state', event => isComposer(event) ? composerState() : null);
 ipcMain.on('composer:hide', event => { if (isComposer(event)) hideComposer(); });
+ipcMain.handle('composer:replies', event => isComposer(event) ? engine?.replies?.snapshot() ?? { messages: [], unread: 0 } : null);
+ipcMain.handle('composer:refresh-replies', async event => isComposer(event) && nativeMode && !smoke ? engine.refreshReplies() : { ok: false });
+ipcMain.on('composer:read-replies', event => { if (isComposer(event) && composerWindow.isVisible() && composerWindow.isFocused()) engine?.replies?.read(); });
+function validAssetRequest(event, request) {
+  return isComposer(event) && composerWindow.isVisible() && nativeMode && !smoke &&
+    typeof request?.messageId === 'string' && request.messageId.length <= 512 &&
+    typeof request.assetId === 'string' && /^[a-f0-9]{24}$/.test(request.assetId);
+}
+ipcMain.handle('composer:attachment', async (event, request) => {
+  if (!validAssetRequest(event, request)) return { ok: false, reason: 'unavailable' };
+  try {
+    const value = await engine.attachment(request.messageId, request.assetId);
+    if (value.kind === 'image' && !value.mime.startsWith('image/')) return { ok: false, reason: 'invalid_media' };
+    if (value.kind === 'audio' && !value.mime.startsWith('audio/')) return { ok: false, reason: 'invalid_media' };
+    if (value.kind === 'code') {
+      if (value.size > 512*1024) return { ok: false, reason: 'preview_size_limit' };
+      const text = new TextDecoder('utf-8', { fatal: true }).decode(value.bytes);
+      if (text.includes('\0')) return { ok: false, reason: 'not_text' };
+      return { ok: true, kind: 'code', name: value.name, text, size: value.size };
+    }
+    if (value.kind === 'file') return { ok: false, reason: 'download_only' };
+    return { ok: true, kind: value.kind, mime: value.mime, bytes: value.bytes, name: value.name, size: value.size };
+  } catch { return { ok: false, reason: 'attachment_unavailable' }; }
+});
+ipcMain.handle('composer:save-attachment', async (event, request) => {
+  if (!validAssetRequest(event, request) || !composerWindow.isFocused()) return { ok: false, reason: 'unavailable' };
+  try {
+    const value = await engine.attachment(request.messageId, request.assetId);
+    const result = await dialog.showSaveDialog(composerWindow, { title: '保存 Muse 附件（不会执行）',
+      defaultPath: path.join(app.getPath('downloads'), path.basename(value.name)), buttonLabel: '保存' });
+    if (result.canceled || !result.filePath) return { ok: false, reason: 'cancelled' };
+    await fs.promises.writeFile(result.filePath, value.bytes, { flag: 'wx', mode: 0o600 });
+    return { ok: true };
+  } catch (error) { return { ok: false, reason: error.code === 'EEXIST' ? 'already_exists' : 'save_failed' }; }
+});
+ipcMain.handle('composer:copy-code', (event, request) => {
+  if (!isComposer(event) || !composerWindow.isVisible() || !composerWindow.isFocused() || !Number.isInteger(request?.index) || request.index < 0 || request.index > 100) return { ok: false };
+  const text = engine?.replies?.code(request.messageId, request.index);
+  if (typeof text !== 'string' || text.length > 128*1024) return { ok: false };
+  clipboard.writeText(text); return { ok: true };
+});
 ipcMain.handle('composer:send', async (event, draft) => {
   if (!isComposer(event) || !composerWindow.isVisible() || !composerWindow.isFocused() || !nativeMode || !engine?.submitTask || smoke) return { status: 'not_sent', reason: 'unavailable' };
   try { return await engine.submitTask(draft); } catch { return { status: 'uncertain', reason: 'delivery_unconfirmed' }; }

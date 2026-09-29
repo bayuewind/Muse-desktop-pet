@@ -1,10 +1,11 @@
 'use strict';
 const { StringDecoder } = require('node:string_decoder');
 const STATUS_EVENTS = new Set(['agent.status', 'task.status', 'approvals.snapshot']);
+const CHAT_EVENTS = new Set(['message.user','message.assistant','delta.message_start','delta.text_append','delta.message_done','delta.presentation','delta.message_removed']);
 class SubscriptionDecoder {
-  constructor({ onAck = () => {}, onEvent = () => {}, onDiagnostic = () => {} } = {}) {
+  constructor({ onAck = () => {}, onEvent = () => {}, onChatEvent = () => {}, onDiagnostic = () => {} } = {}) {
     this.decoder = new StringDecoder('utf8'); this.pending = ''; this.acked = false;
-    this.dead = false; this.onAck = onAck; this.onEvent = onEvent; this.onDiagnostic = onDiagnostic;
+    this.dead = false; this.onAck = onAck; this.onEvent = onEvent; this.onChatEvent = onChatEvent; this.onDiagnostic = onDiagnostic;
   }
   record(text) {
     if (!text.trim()) return;
@@ -16,8 +17,13 @@ class SubscriptionDecoder {
     if (record.type === 'event') {
       if (typeof record.event !== 'string' || !('payload' in record)) throw new Error('invalid_event');
       if (!this.acked) { this.acked = true; this.onAck({}); }
-      // Discard chat text, tool output and other unrelated event bodies immediately.
+      // Chat delivery is separate from status consumers. Tool internals remain
+      // discarded; only the explicit public message event set can be displayed.
       if (STATUS_EVENTS.has(record.event)) this.onEvent(record.event, record.payload, {
+        seq: Number.isSafeInteger(record.seq) ? record.seq : null,
+        ts_ms: Number.isFinite(record.ts_ms) ? record.ts_ms : null,
+      });
+      if (CHAT_EVENTS.has(record.event)) this.onChatEvent(record.event, record.payload, {
         seq: Number.isSafeInteger(record.seq) ? record.seq : null,
         ts_ms: Number.isFinite(record.ts_ms) ? record.ts_ms : null,
       });

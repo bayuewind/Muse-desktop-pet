@@ -13,6 +13,10 @@ const ROUTES = Object.freeze({
   'tasks.runs': ['GET', '/tasks/runs'],
   'subagents.status': ['GET', '/subagents/status'],
   'subagents.list': ['GET', '/subagents'],
+  'chat.history': ['GET', '/chat/history'],
+  'chat.message_get': ['GET', '/chat/message'],
+  'fs.stat': ['POST', '/fs/stat'],
+  'fs.read': ['POST', '/fs/read'],
   'chat.subscribe': ['POST', '/chat/subscribe', true],
   'activity.subscribe': ['POST', '/activity/subscribe', true],
   'tasks.subscribe': ['POST', '/tasks/subscribe', true],
@@ -167,6 +171,7 @@ class NativeGateway extends EventEmitter {
       }, 30000);
       if (subscription) entry.decoder = new SubscriptionDecoder({ onAck: settle,
         onEvent: (type, payload, meta) => this.emit('status-event', type, payload, { ...meta, source: method }),
+        onChatEvent: (type, payload, meta) => this.emit('chat-event', type, payload, { ...meta, source: method }),
         onDiagnostic: shape => this.emit('diagnostic', { step: 'subscription_record_shape', method, ...shape }) });
       this.pending.set(request.streamId, entry);
       try { for (const frame of request.frames) this.socket.send(frame); }

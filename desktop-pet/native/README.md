@@ -6,13 +6,14 @@
 
 - `noise-xx.cjs`：Noise XX / X25519 / AES-256-GCM / SHA-256。三轮握手、握手哈希、双向传输与 noise-c 独立测试向量逐字节一致；认证失败后作废密钥状态。
 - `wire.cjs`：Muse Noise protobuf 请求 / 响应、流 ID、分片组装与字节上限。
-- `subscription.cjs`：增量 UTF-8 / NDJSON 解析，只传递状态事件，丢弃聊天和工具输出事件。
-- `gateway-client.cjs`：仅连接固定的官方 `hatch.metaaivm.com/v1/noise`；保留 TLS 校验。通用 `request()` 仍只允许状态查询、订阅与保活；新增独立的 `sendChat()` / `transcribePCM()` 仅由本机输入面板的用户操作调用。不提供取消任务、自动审批或删除入口。
+- `subscription.cjs`：增量 UTF-8 / NDJSON 解析，状态和公开聊天事件使用独立回调；未订阅聊天回调的只读状态消费者继续丢弃聊天，工具内部事件不进入会话 UI。
+- `gateway-client.cjs`：仅连接固定的官方 `hatch.metaaivm.com/v1/noise`；保留 TLS 校验。通用 `request()` 允许状态、聊天历史与附件只读查询、订阅与保活；独立的 `sendChat()` / `transcribePCM()` 由本机输入面板的用户操作调用。不提供取消任务、自动审批或删除入口。
 - `activity-model.cjs`：按智能体分别记录状态；一个智能体的 `online` 不会把另一个正在工作的智能体清成空闲。连接断开、心跳过期或覆盖不完整时显示未知。
 - `monitor.cjs`：浏览器无关 CLI、重连退避、保活、脱敏状态输出。
 - `outgoing.cjs` / `audio.cjs`：文字投递去重、明确确认与未知结果处理、24k PCM 转换及语音最终转写解析。任务和音频不写入日志或本地文件。
+- `replies.cjs` / `attachments.cjs`：主会话回复合并、事件去重、历史与实时竞态处理；从真实 presentation 提取附件，通过原生 `fs.stat` / `fs.read` 按需读取。只允许工作区路径与已登记附件，校验文件长度和媒体格式。UI 将全部正文与代码按文本处理，不执行；文件需手动保存，音频需手动播放。具体容量和格式限制见上级 README。
 
-文字协议参考当前公开客户端 `14hyzlnci3o9o.js` 的 `chat.stream`（`message`、`capabilities` 与返回 `message_id`）；语音协议参考 `3qxdrzta9l34d.js` 的 `/api/voice/dictation?sample_rate_hz=24000`，使用独立 Noise 流、PCM16 LE、BodyChunk 和 `partial/final/error` 记录。未用真实消息或实际录音进行开发测试。
+文字协议参考当前公开客户端 `14hyzlnci3o9o.js` 的 `chat.stream`（`message`、`capabilities` 与返回 `message_id`）；语音协议参考 `3qxdrzta9l34d.js` 的 `/api/voice/dictation?sample_rate_hz=24000`，使用独立 Noise 流、PCM16 LE、BodyChunk 和 `partial/final/error` 记录。已在用户授权下真实发送一次限定测试并收到文字、代码、PNG、WAV；尚未测试实际麦克风和语音转写。
 
 `npm run native` 启动原生桌宠，使用用户已批准的本机加密会话。只读 stdin 的开发 CLI 保留为 `npm run native:stdin`；它不会自动发现凭据。原生连接失败不会回退启动浏览器。
 

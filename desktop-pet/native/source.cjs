@@ -6,11 +6,18 @@ const { NativeStatus } = require('./status.cjs');
 const { reauthenticateStandardPeer } = require('./peer-renewal.cjs');
 const { OutgoingTasks } = require('./outgoing.cjs');
 const { toDictationPCM } = require('./audio.cjs');
+const { ReplyStore } = require('./replies.cjs');
+const { readAttachment } = require('./attachments.cjs');
 class NativeSource extends EventEmitter {
   constructor(vault) {
     super(); this.vault = vault; this.state = new NativeStatus(); this.generation = 0;
     this.client = null; this.timers = new Set(); this.retryTimer = null; this.running = false; this.lastLog = '';
     this.outgoing = new OutgoingTasks();
+    this.replies = new ReplyStore(() => {
+      if (this.replyTimer) return;
+      this.replyTimer = setTimeout(() => { this.replyTimer = null; this.emit('replies', this.replies.snapshot()); }, 100);
+    });
+    this.assetCache = new Map(); this.assetCacheBytes = 0;
   }
   publish() {
     const view = this.state.view(); this.emit('state', view);
@@ -27,10 +34,18 @@ class NativeSource extends EventEmitter {
   async connect(generation, retry) {
     if (!this.running || generation !== this.generation) return;
     const client = new NativeGateway(); this.client = client;
+    const epoch = this.connectionEpoch = (this.connectionEpoch ?? 0) + 1;
     let auth, closedReason = 'connection_failed';
     const closed = new Promise(resolve => client.once('closed', reason => { closedReason = reason; resolve(); }));
     const current = () => this.running && generation === this.generation;
     let pollBusy = false, pingBusy = false;
+    client.on('chat-event', (type, payload, meta) => {
+      if (current()) {
+        const context = { ...meta, epoch };
+        this.replies.ingest(type, payload, context);
+        this.emit('chat-event', type, payload, context);
+      }
+    });
     client.on('status-event', (event, payload, meta) => {
       if (!current()) return;
       if (event === 'agent.status') this.state.agent(payload, meta);
@@ -69,6 +84,7 @@ class NativeSource extends EventEmitter {
         finally { pollBusy = false; if (current()) this.publish(); }
       };
       await Promise.all(['chat.subscribe','activity.subscribe','tasks.subscribe'].map(method => client.request(method)));
+      try { const startedAt = Date.now(); const history = await client.request('chat.history', { limit: 20 }); if (current()) this.replies.history(history, startedAt); } catch {}
       await poll();
       if (!current()) return;
       this.interval(() => void ping(), 15000);
@@ -94,6 +110,7 @@ class NativeSource extends EventEmitter {
     }
     finally { client.close(closedReason); if (current()) this.clearTimers(); }
     if (!current()) return;
+    this.replies.interrupted();
     const safeReasons = new Set(['server_identity_mismatch','verified_peer_policy_required','attestation_verifier_required',
       'vm_assignment_changed','authorization_required','credential_decryption_failed','os_encryption_unavailable',
       'auth_network_error','gateway_closed','request_timeout','handshake_failed','gateway_protocol_error','peer_reauthenticated']);
@@ -104,6 +121,32 @@ class NativeSource extends EventEmitter {
     if (!identity && !authRequired) this.retryTimer = setTimeout(() => void this.connect(generation, Math.min(30000, retry*2)), retry);
   }
   async reload() { await this.stop(); return this.start(); }
+  async refreshReplies() {
+    const client = this.client, generation = this.generation;
+    if (!client?.ready || client.closed) return { ok: false };
+    try { const startedAt = Date.now(); const history = await client.request('chat.history', { limit: 20 });
+      if (generation !== this.generation) return { ok: false };
+      this.replies.history(history, startedAt); return { ok: true };
+    } catch { return { ok: false }; }
+  }
+  async attachment(messageId, assetId) {
+    const attachment = this.replies.asset(messageId, assetId);
+    if (!attachment) throw new Error('attachment_not_registered');
+    const key = `${messageId}:${assetId}`, cached = this.assetCache.get(key);
+    if (cached && Date.now()-cached.at < 60000) return cached.value;
+    if (!this.client?.ready || this.client.closed) throw new Error('not_connected');
+    const generation = this.generation;
+    const value = await readAttachment(this.client, attachment);
+    if (generation !== this.generation) throw new Error('connection_changed');
+    if (cached) { this.assetCacheBytes -= cached.value.size; this.assetCache.delete(key); }
+    while (this.assetCache.size >= 8 || this.assetCacheBytes + value.size > 32*1024*1024) {
+      const oldest = this.assetCache.keys().next().value;
+      if (!oldest) break;
+      this.assetCacheBytes -= this.assetCache.get(oldest).value.size; this.assetCache.delete(oldest);
+    }
+    this.assetCache.set(key, { value, at: Date.now() }); this.assetCacheBytes += value.size;
+    return value;
+  }
   submitTask(draft) {
     const client = this.client, generation = this.generation;
     return this.outgoing.submit(draft, {
@@ -145,6 +188,7 @@ class NativeSource extends EventEmitter {
   async stop() {
     this.running = false; this.generation++; this.clearTimers(); this.client?.close(); this.client = null;
     this.cancelDictation();
+    this.replies.interrupted();
   }
 }
 module.exports = { NativeSource };

@@ -5,3 +5,4 @@ dist/
 *.credentials.json
 .native-secrets*
 native/*.local.json
+.test-output/

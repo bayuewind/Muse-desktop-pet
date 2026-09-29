@@ -32,4 +32,5 @@ document.querySelector('#open').addEventListener('click', () => window.pet.openM
 document.querySelector('#hide').addEventListener('click', () => window.pet.hide());
 document.querySelector('#portrait').addEventListener('click', () => window.pet.compose());
 window.pet.onState(render);
+window.pet.onUnread(count => { const badge=document.querySelector('#unread'); badge.hidden=!count; badge.textContent=count>9?'9+':String(count); });
 void window.pet.getState().then(render);
