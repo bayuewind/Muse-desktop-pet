@@ -316,16 +316,26 @@ async function runSmoke() {
     // Report flags, not session data, and do not launch a remote login in smoke mode.
     const preferences = petWindow.webContents.getLastWebPreferences();
     if (!preferences.sandbox || !preferences.contextIsolation || preferences.nodeIntegration) throw new Error('unsafe_preferences');
-    await petWindow.webContents.executeJavaScript('window.pet.setOrbit(true)');
-    const orbitChecks = await petWindow.webContents.executeJavaScript(`({
+    await createComposer();
+    await petWindow.webContents.executeJavaScript('document.querySelector("#menu-dot").click()');
+    await new Promise(resolve => setTimeout(resolve, 250));
+    const orbitChecks = await petWindow.webContents.executeJavaScript(`(() => {
+      const portrait=document.querySelector('#portrait'), bubbles=[...document.querySelectorAll('#orbit .bubble')];
+      const boxes=bubbles.map(bubble=>bubble.getBoundingClientRect());
+      return {
       expanded:document.body.dataset.orbit==='true',
       four:document.querySelectorAll('#orbit .bubble').length===4,
       empty:document.querySelectorAll('#orbit .empty-bubble:disabled').length===3,
       account:!!document.querySelector('#orbit-account'),
-    })`);
+      separate:!portrait.contains(document.querySelector('#menu-dot')),
+      rightSide:boxes.every(box=>box.left>portrait.getBoundingClientRect().right),
+      crescent:boxes[1].x>boxes[0].x && boxes[2].x>boxes[3].x && boxes.every((box,i)=>i===0||box.y>boxes[i-1].y),
+    }; })()`);
     if (!Object.values(orbitChecks).every(Boolean)) throw new Error('orbit_not_rendered');
-    await petWindow.webContents.executeJavaScript('window.pet.setOrbit(false)');
-    await createComposer();
+    if (composerWindow.isVisible()) throw new Error('dot_opened_chat');
+    await petWindow.webContents.executeJavaScript('document.querySelector("#portrait").click()');
+    await new Promise(resolve => setTimeout(resolve, 250));
+    if (!composerWindow.isVisible() || petOrbit) throw new Error('portrait_did_not_open_chat');
     const composerChecks = await composerWindow.webContents.executeJavaScript(`(async () => {
       const draft=document.querySelector('#draft');
       const noInitialAudio=!document.querySelector('#recording').checkVisibility();

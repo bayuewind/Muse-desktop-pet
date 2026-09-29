@@ -32,18 +32,19 @@ still.addEventListener('error', () => { still.hidden = true; });
 motion.addEventListener('change', () => render(latest));
 document.querySelector('#open').addEventListener('click', () => window.pet.openMuse());
 document.querySelector('#hide').addEventListener('click', () => window.pet.hide());
-const portrait = document.querySelector('#portrait'), orbit = document.querySelector('#orbit');
+const portrait = document.querySelector('#portrait'), menuDot = document.querySelector('#menu-dot'), orbit = document.querySelector('#orbit');
 let orbitOpen = false, orbitPending = false;
 function renderOrbit(expanded) {
   orbitOpen = expanded; document.body.dataset.orbit = String(expanded); orbit.hidden = !expanded;
-  portrait.setAttribute('aria-expanded', String(expanded));
-  portrait.setAttribute('aria-label', expanded ? '收起气泡菜单' : '展开气泡菜单');
+  menuDot.setAttribute('aria-expanded', String(expanded));
+  menuDot.setAttribute('aria-label', expanded ? '收起气泡菜单' : '展开气泡菜单');
 }
 async function toggleOrbit() {
   if (orbitPending) return; orbitPending = true;
   try { renderOrbit(await window.pet.setOrbit(!orbitOpen)); } finally { orbitPending = false; }
 }
-portrait.addEventListener('click', () => void toggleOrbit());
+portrait.addEventListener('click', () => window.pet.compose());
+menuDot.addEventListener('click', event => { event.stopPropagation(); void toggleOrbit(); });
 document.querySelector('#orbit-account').addEventListener('click', () => window.pet.accountMenu());
 document.addEventListener('keydown', event => { if (event.key === 'Escape' && orbitOpen) void window.pet.setOrbit(false); });
 document.addEventListener('click', event => {

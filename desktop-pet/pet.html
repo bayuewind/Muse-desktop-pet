@@ -11,13 +11,13 @@
   <main class="pet">
     <div class="handle" title="拖动这里移动桌宠"><span></span></div>
     <button class="hide" id="hide" aria-label="隐藏桌宠">×</button>
-    <button class="portrait" id="portrait" aria-label="展开气泡菜单" aria-expanded="false" title="点击展开气泡 · ⌘⇧M 打开会话">
+    <button class="portrait" id="portrait" aria-label="打开 Muse 聊天窗口" title="点击打开聊天 · ⌘⇧M">
       <div class="fallback" aria-hidden="true"><div class="face"><i></i><b>⌣</b><i></i></div></div>
       <img id="still" src="https://muse.ai/avatars/hatch.jpg" alt="Muse 桌宠">
       <video id="avatar" muted autoplay loop playsinline aria-hidden="true"></video>
-      <span class="dot" aria-hidden="true"></span>
       <span id="unread" class="unread" hidden aria-label="新回复"></span>
     </button>
+    <button class="dot" id="menu-dot" aria-label="展开气泡菜单" aria-expanded="false" aria-controls="orbit" title="点击小圆点展开菜单"></button>
     <section class="caption">
       <div class="eyebrow">MUSE COMPANION <span>· 本机</span></div>
       <div id="status" role="status" aria-live="polite">请先登录 Muse</div>
