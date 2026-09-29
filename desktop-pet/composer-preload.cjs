@@ -16,6 +16,12 @@ contextBridge.exposeInMainWorld('composer', Object.freeze({
     ipcRenderer.on('composer:view', listener); return () => ipcRenderer.removeListener('composer:view', listener);
   },
   send: draft => ipcRenderer.invoke('composer:send', draft),
+  inputList: () => ipcRenderer.invoke('composer:input-list'),
+  inputSelect: () => ipcRenderer.invoke('composer:input-select'),
+  inputStage: file => ipcRenderer.invoke('composer:input-stage', file),
+  inputRemove: id => ipcRenderer.invoke('composer:input-remove', id),
+  inputPreview: id => ipcRenderer.invoke('composer:input-preview', id),
+  capture: () => ipcRenderer.invoke('composer:capture'),
   hide: () => ipcRenderer.send('composer:hide'),
   accountMenu: () => ipcRenderer.send('composer:account-menu'),
   transitionDone: id => ipcRenderer.send('composer:transition-done', id),

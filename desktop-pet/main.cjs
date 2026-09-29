@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, screen, powerMonitor, safeStorage, globalShortcut, systemPreferences, dialog, clipboard, shell, Notification } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, screen, powerMonitor, safeStorage, globalShortcut, systemPreferences, dialog, clipboard, shell, Notification, desktopCapturer } = require('electron');
 const { randomUUID } = require('node:crypto');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -11,6 +11,10 @@ const { deriveState } = require('./state.cjs');
 const { NotificationPolicy } = require('./notifications.cjs');
 const { Preferences } = require('./preferences.cjs');
 const { WorkspaceModel } = require('./native/workspace.cjs');
+const { InputAttachments } = require('./input-attachments.cjs');
+const inputAttachments = new InputAttachments();
+let activeSubmission = null;
+let captureOperation = null;
 const notificationPolicy = new NotificationPolicy();
 const activeNotifications = new Set();
 let preferences;
@@ -350,6 +354,7 @@ async function createWindows() {
       resetViews: () => {
         cancelVoice();
         clearNotifications();
+        inputAttachments.clear(); activeSubmission = null;
         composerVisibility.reset();
         if (composerWindow && !composerWindow.isDestroyed()) composerWindow.destroy();
         composerWindow = null;
@@ -584,9 +589,89 @@ ipcMain.handle('composer:copy-code', (event, request) => {
   if (typeof text !== 'string' || text.length > 128*1024) return { ok: false };
   clipboard.writeText(text); return { ok: true };
 });
+function inputAllowed(event) {
+  return isComposer(event) && composerWindow.isVisible() && composerWindow.isFocused() && !activeSubmission;
+}
+ipcMain.handle('composer:capture', async event => {
+  if (!inputAllowed(event) || captureOperation || smoke && !process.argv.includes('--workspace-test')) return { ok: false };
+  if (smoke) {
+    const width = 640, height = 360, bitmap = Buffer.alloc(width * height * 4);
+    for (let i = 0; i < bitmap.length; i += 4) { bitmap[i] = 180; bitmap[i + 1] = 150; bitmap[i + 2] = i < bitmap.length / 2 ? 40 : 210; bitmap[i + 3] = 255; }
+    const bytes = nativeImage.createFromBitmap(bitmap, { width, height }).toPNG(); bitmap.fill(0);
+    return { ok: true, bytes, width, height };
+  }
+  const operation = {}, generation = inputAttachments.generation, window = composerWindow;
+  captureOperation = operation; cancelVoice();
+  const current = () => !quitting && generation === inputAttachments.generation &&
+    captureOperation === operation && composerWindow === window && !window.isDestroyed() && composerVisibility.open;
+  try {
+    return await require('./capture-screen.cjs').captureScreen({ desktopCapturer, screen, composer: window, pet: petWindow, current,
+      restore: wasPetVisible => {
+        if (wasPetVisible && petWindow && !petWindow.isDestroyed()) petWindow.showInactive();
+        window.show(); window.focus();
+      } });
+  } catch { return { ok: false }; }
+  finally { if (captureOperation === operation) captureOperation = null; }
+});
+ipcMain.handle('composer:input-list', event => isComposer(event) ? inputAttachments.list() : []);
+ipcMain.handle('composer:input-select', async event => {
+  if (!inputAllowed(event) || smoke) return { ok: false, reason: 'unavailable' };
+  const generation = inputAttachments.generation;
+  try {
+    const result = await dialog.showOpenDialog(composerWindow, { title: '选择待发送给 Muse 的附件',
+      properties: ['openFile', 'multiSelections'], buttonLabel: '加入消息' });
+    if (result.canceled || generation !== inputAttachments.generation) return { ok: false, reason: 'cancelled' };
+    if (result.filePaths.length + inputAttachments.rows.size > 4) return { ok: false, reason: 'attachment_capacity' };
+    let reason = null;
+    for (const file of result.filePaths) {
+      if (generation !== inputAttachments.generation || quitting) return { ok: false, reason: 'cancelled' };
+      try { await inputAttachments.selectFile(file); } catch (error) { reason = safeInputReason(error); break; }
+    }
+    return { ok: !reason, reason, files: inputAttachments.list() };
+  } catch { return { ok: false, reason: 'file_unavailable' }; }
+});
+function safeInputReason(error) {
+  return ['attachment_capacity', 'attachment_size_limit', 'attachment_type_unsupported', 'attachment_image_invalid', 'invalid_filename', 'file_changed']
+    .includes(error?.message) ? error.message : 'file_unavailable';
+}
+ipcMain.handle('composer:input-stage', (event, file) => {
+  if (!inputAllowed(event)) return { ok: false, reason: 'unavailable' };
+  try { inputAttachments.stage(file?.name, file?.bytes); return { ok: true, files: inputAttachments.list() }; }
+  catch (error) { return { ok: false, reason: safeInputReason(error) }; }
+});
+ipcMain.handle('composer:input-remove', (event, id) => {
+  if (!inputAllowed(event) || typeof id !== 'string') return { ok: false };
+  inputAttachments.remove(id); return { ok: true, files: inputAttachments.list() };
+});
+ipcMain.handle('composer:input-preview', (event, id) =>
+  isComposer(event) && composerWindow.isVisible() && typeof id === 'string' ? inputAttachments.preview(id) : null);
 ipcMain.handle('composer:send', async (event, draft) => {
   if (!isComposer(event) || !composerWindow.isVisible() || !composerWindow.isFocused() || !nativeMode || !engine?.submitTask || smoke) return { status: 'not_sent', reason: 'unavailable' };
-  try { return await engine.submitTask(draft); } catch { return { status: 'uncertain', reason: 'delivery_unconfirmed' }; }
+  if (activeSubmission || typeof draft?.id !== 'string' || !/^[a-f0-9-]{36}$/i.test(draft.id) ||
+      typeof draft.text !== 'string' || draft.text.length > 8000) return { status: 'not_sent', reason: 'invalid_draft' };
+  const source = engine, generation = inputAttachments.generation, operation = {};
+  activeSubmission = operation;
+  let dispatched = false;
+  try {
+    const ids = draft.attachmentIds ?? [];
+    let attachments = inputAttachments.resolve(ids);
+    if (attachments.length) {
+      const result = await dialog.showMessageBox(composerWindow, { type: 'question', title: '发送附件给 Muse',
+        message: `将 ${attachments.length} 个附件发送到你的 Muse 云端主会话？`,
+        detail: attachments.map(file => `${file.name} (${(file.bytes.length / 1024).toFixed(1)} KB)`).join('\n'),
+        buttons: ['取消', '确认发送'], defaultId: 0, cancelId: 0 });
+      if (result.response !== 1) return { status: 'not_sent', reason: 'cancelled' };
+      if (generation !== inputAttachments.generation || source !== engine || quitting ||
+          !isComposer(event) || !composerWindow.isVisible()) return { status: 'not_sent', reason: 'account_changed' };
+      attachments = inputAttachments.resolve(ids);
+    }
+    dispatched = true;
+    const result = await source.submitTask({ id: draft.id, text: draft.text, attachments });
+    if (source !== engine || generation !== inputAttachments.generation) return { status: 'uncertain', reason: 'account_changed' };
+    if (result?.status === 'accepted') for (const id of ids) inputAttachments.remove(id);
+    return result;
+  } catch { return { status: dispatched ? 'uncertain' : 'not_sent', reason: dispatched ? 'delivery_unconfirmed' : 'attachment_expired' }; }
+  finally { if (activeSubmission === operation) activeSubmission = null; }
 });
 ipcMain.handle('composer:microphone', async event => {
   if (!isComposer(event) || !composerWindow.isVisible() || !composerWindow.isFocused() || !nativeMode || smoke) return { allowed: false };
@@ -624,6 +709,7 @@ else {
     if (quitting) return;
     quitting = true; clearInterval(timer); cancelVoice(); globalShortcut.unregisterAll(); tray?.destroy();
     clearNotifications();
+    inputAttachments.clear();
     composerVisibility.reset();
     if (accounts || engine) { event.preventDefault(); void (accounts ? accounts.stop() : engine.stop()).then(() => app.exit(0), () => app.exit(1)); }
   });

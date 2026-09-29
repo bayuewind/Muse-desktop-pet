@@ -6,6 +6,7 @@ const { NoiseXXInitiator } = require('./noise-xx.cjs');
 const { NoiseWire, encode } = require('./wire.cjs');
 const { SubscriptionDecoder } = require('./subscription.cjs');
 const { DictationDecoder, RATE, MAX_SECONDS } = require('./audio.cjs');
+const { validateChatPayload } = require('./chat-input.cjs');
 const ROUTES = Object.freeze({
   'connection.ping': ['POST', '/api/ping'],
   'activity.list': ['GET', '/activity'],
@@ -147,11 +148,12 @@ class NativeGateway extends EventEmitter {
   }
   // Explicit interaction-only entry point, never exposed through request().
   sendChat(params) {
-    if (typeof params?.message !== 'string' || !params.message.trim() || Buffer.byteLength(params.message) > 32768) {
+    let payload;
+    try { payload = validateChatPayload(params); } catch {
       const error = new Error('invalid_message'); error.deliveryState = 'not_sent'; return Promise.reject(error);
     }
     return this.requestRoute('chat.stream', ['POST', '/chat/stream', true],
-      { message: params.message, capabilities: [] }, { command: true });
+      payload, { command: true });
   }
   requestRoute(method, route, params = {}, { command = false } = {}) {
     if (!this.ready || this.closed) { const error = new Error('gateway_not_ready'); error.deliveryState = 'not_sent'; return Promise.reject(error); }

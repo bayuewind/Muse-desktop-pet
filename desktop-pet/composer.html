@@ -26,11 +26,14 @@
     <div class="feed-toolbar"><span>主会话</span><button id="refresh-replies" class="icon-button" title="同步近期回复" aria-label="同步近期回复"><i data-lucide="refresh-cw"></i></button></div>
     <section id="replies" class="replies" aria-label="Muse 回复" aria-live="polite"><p class="empty">暂无近期回复</p></section>
     <button id="new-replies" class="new-replies" hidden>查看新回复</button>
+    <div id="input-strip" class="input-strip" hidden><span id="input-summary"></span><div id="input-files"></div></div>
     <label class="sr-only" for="draft">任务内容</label>
     <textarea id="draft" maxlength="8000" placeholder="给 Muse 下达任务，或继续追问…" spellcheck="false"></textarea>
     <div class="recording" id="recording" hidden><span class="pulse"></span><span id="recording-label">正在录音</span><button id="cancel-recording">取消</button></div>
     <div class="feedback" id="feedback" role="status" aria-live="polite"></div>
     <footer>
+      <button id="attach" class="icon-button" title="添加附件" aria-label="添加附件"><i data-lucide="paperclip"></i></button>
+      <button id="capture" class="icon-button" title="截取当前显示器" aria-label="截取当前显示器"><i data-lucide="scan"></i></button>
       <button class="voice icon-button" id="voice" title="录音并转成文字" aria-label="开始语音输入"><i data-lucide="mic"></i></button>
       <span id="count">0 / 8000</span>
       <button class="send" id="send" disabled><i data-lucide="arrow-up"></i><span>发送</span></button>
@@ -70,10 +73,21 @@
       </div>
     </section>
     <div id="workspace-feedback" role="status" aria-live="polite" hidden></div>
+    <div class="file-drop-overlay" aria-hidden="true"><i data-lucide="paperclip"></i><span>加入消息</span></div>
   </main>
+  <dialog id="input-preview-dialog" class="local-preview"><div class="preview-heading"><strong id="input-preview-title">本地图片</strong><button id="input-preview-close" class="icon-button" aria-label="关闭预览" title="关闭预览"><i data-lucide="x"></i></button></div><img id="input-preview-image" alt="待发送图片预览"></dialog>
+  <dialog id="capture-dialog" class="local-preview">
+    <div class="preview-heading"><strong>屏幕截图 · 本地预览</strong><span id="capture-size"></span><button id="capture-reset" class="icon-button" title="恢复完整截图" aria-label="恢复完整截图"><i data-lucide="rotate-ccw"></i></button></div>
+    <div class="capture-stage"><canvas id="capture-canvas" aria-label="截图裁切区域"></canvas></div>
+    <div class="crop-fields"><label>X<input id="crop-x" type="number" min="0" step="1"></label><label>Y<input id="crop-y" type="number" min="0" step="1"></label><label>宽<input id="crop-width" type="number" min="1" step="1"></label><label>高<input id="crop-height" type="number" min="1" step="1"></label></div>
+    <div class="preview-actions"><button id="capture-cancel">取消</button><button id="capture-add" class="primary-button">加入消息</button></div>
+  </dialog>
   <script src="node_modules/lucide/dist/umd/lucide.min.js"></script>
   <script src="composer-motion.js"></script>
   <script src="replies-ui.js"></script>
+  <script src="input-ui.js"></script>
+  <script src="crop-geometry.js"></script>
+  <script src="capture-ui.js"></script>
   <script src="composer.js"></script>
   <script src="workspace-ui.js"></script>
 </body>

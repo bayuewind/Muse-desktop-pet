@@ -4,8 +4,10 @@ const feedback = document.querySelector('#feedback'), recordingStrip = document.
 const shortcutLabel = navigator.userAgent.includes('Windows') ? 'Ctrl' : '⌘';
 document.querySelector('#shortcut').textContent = `${shortcutLabel}⇧M 快速呼出`;
 document.querySelector('#account').addEventListener('click', () => window.composer.accountMenu());
-let connected = false, sending = false, transcribing = false, requestingMic = false, recording = null;
-let revision = 0, operation = 0, uncertainText = null, currentDraftId = crypto.randomUUID();
+let connected = false, sending = false, transcribing = false, requestingMic = false, recording = null, attaching = false;
+let revision = 0, operation = 0, currentDraftId = crypto.randomUUID();
+const uncertainDrafts = new Set();
+function draftKey() { return JSON.stringify([draft.value, window.draftFiles?.ids() ?? []]); }
 async function deadline(promise, ms) {
   let timer;
   try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('audio_setup_timeout')), ms); })]); }
@@ -14,10 +16,13 @@ async function deadline(promise, ms) {
 function note(text, level = '') { feedback.textContent = text; feedback.dataset.level = level; }
 function update() {
   document.querySelector('#count').textContent = `${draft.value.length} / 8000`;
-  send.disabled = !connected || sending || transcribing || requestingMic || !!recording || !draft.value.trim() || uncertainText === draft.value;
+  send.disabled = !connected || sending || transcribing || requestingMic || !!recording || attaching ||
+    (!draft.value.trim() && !window.draftFiles?.ids().length) || uncertainDrafts.has(draftKey());
   send.innerHTML = sending ? '<i data-lucide="loader-circle"></i><span>发送中</span>' : '<i data-lucide="arrow-up"></i><span>发送</span>';
   send.title = `发送 (${shortcutLabel}+Enter)`;
-  voice.disabled = sending || transcribing || requestingMic || (!connected && !recording);
+  voice.disabled = sending || transcribing || requestingMic || attaching || (!connected && !recording);
+  document.querySelector('#capture').disabled = sending || transcribing || requestingMic || attaching || !!recording;
+  window.draftFiles?.setDisabled(sending || transcribing || requestingMic || !!recording);
   const voiceLabel = recording ? '停止并转写' : transcribing ? '转写中' : requestingMic ? '等待麦克风' : '语音输入';
   voice.innerHTML = `<i data-lucide="${recording ? 'square' : transcribing || requestingMic ? 'loader-circle' : 'mic'}"></i>`;
   voice.title = voiceLabel; voice.setAttribute('aria-label', voiceLabel);
@@ -32,21 +37,26 @@ function render(state) {
   if (state?.shortcutAvailable === false) document.querySelector('#shortcut').textContent = '快捷键被占用，可从菜单栏打开';
   update();
 }
-draft.addEventListener('input', () => { revision++; currentDraftId = crypto.randomUUID(); if (uncertainText !== draft.value) uncertainText = null; update(); });
+draft.addEventListener('input', () => { revision++; currentDraftId = crypto.randomUUID(); update(); });
+document.addEventListener('composer:attachments-changed', () => { revision++; currentDraftId = crypto.randomUUID(); update(); });
+document.addEventListener('composer:input-busy', event => { attaching = event.detail; update(); });
+document.addEventListener('composer:input-note', event => note(event.detail.text, event.detail.level));
 async function submit() {
   if (send.disabled) return;
-  const text = draft.value, id = currentDraftId, atRevision = revision;
+  const text = draft.value, id = currentDraftId, atRevision = revision, key = draftKey();
+  const attachmentIds = window.draftFiles?.ids() ?? [];
   sending = true; note('正在发送到 Muse 主会话…'); update();
   try {
-    const result = await window.composer.send({ id, text });
+    const result = await window.composer.send({ id, text, attachmentIds });
     if (result?.status === 'accepted') {
       if (revision === atRevision) { draft.value = ''; currentDraftId = crypto.randomUUID(); revision++; }
+      await window.draftFiles?.sync();
       note('Muse 已确认收到任务。可查看桌宠的工作状态。', 'success');
     } else if (result?.status === 'uncertain') {
-      uncertainText = text;
+      uncertainDrafts.add(key);
       note('送达状态不确定，请先到 Muse 检查；不会自动重发，草稿已保留。', 'error');
-    } else note(result?.status === 'rejected' ? 'Muse 拒绝了请求，草稿已保留，请检查账号或审批状态。' : '本次没有发送，请检查连接和输入后再试。', 'error');
-  } catch { uncertainText = text; note('未能确认送达，请先到 Muse 检查，勿重复提交。', 'error'); }
+    } else note(result?.reason === 'cancelled' ? '已取消发送，草稿和附件已保留。' : result?.status === 'rejected' ? 'Muse 拒绝了请求，草稿已保留，请检查账号或审批状态。' : '本次没有发送，请检查连接和输入后再试。', 'error');
+  } catch { uncertainDrafts.add(key); note('未能确认送达，请先到 Muse 检查，勿重复提交。', 'error'); }
   finally { sending = false; update(); }
 }
 function clearSamples(capture) { for (const samples of capture.chunks) samples.fill(0); capture.chunks.length = 0; }
@@ -74,7 +84,7 @@ async function stopRecording(transcribe) {
       const text = result.text.trim();
       if (draft.value.length + text.length + 1 > 8000) { note('转写后将超出 8000 字限制，请缩短原草稿后再录。', 'error'); return; }
       draft.value += (draft.value && !/\s$/.test(draft.value) ? '\n' : '') + text;
-      revision++; currentDraftId = crypto.randomUUID(); uncertainText = null;
+      revision++; currentDraftId = crypto.randomUUID();
       note('已转成文字。请检查、编辑后点击“发送任务”。', 'success'); draft.focus();
     } else note(result?.status === 'transcribed' ? '没有识别到语音，请再试一次。' : 'Muse 转写暂不可用，请重连后再试；没有发送任何任务。', 'error');
   } catch { note('录音或转写失败，没有发送任务。', 'error'); }
@@ -123,7 +133,8 @@ send.addEventListener('click', () => void submit());
 document.querySelector('#close').addEventListener('click', () => { cancelAudio(); window.composer.hide(); });
 document.addEventListener('keydown', event => {
   if (event.isComposing) return;
-  if (event.key === 'Escape') { event.preventDefault(); cancelAudio(); window.composer.hide(); }
+  if (event.key === 'Escape' && !document.querySelector('dialog[open]')) { event.preventDefault(); cancelAudio(); window.composer.hide(); }
+  if (document.querySelector('dialog[open]')) return;
   if (document.body.dataset.view === 'chat' && event.key === 'Enter' &&
       (navigator.userAgent.includes('Mac') ? event.metaKey : event.ctrlKey)) { event.preventDefault(); void submit(); }
 });

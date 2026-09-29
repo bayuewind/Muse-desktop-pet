@@ -3,6 +3,7 @@
 // emits only public static-script paths, not the authenticated HTML or tokens.
 const { app, safeStorage } = require('electron');
 const path = require('node:path');
+const fs = require('node:fs/promises');
 const { CredentialVault } = require('./vault.cjs');
 const { NativeAuth } = require('./auth.cjs');
 app.setName('Muse 桌宠');
@@ -18,6 +19,21 @@ app.whenReady().then(async () => {
   const html = Buffer.concat(chunks).toString();
   const paths = [...new Set([...html.matchAll(/<script[^>]+src="([^\"]+)"/g)].map(match => match[1].split('?')[0])
     .filter(value => /^\/_next\/static\/chunks\/[A-Za-z0-9_-]+\.js$/.test(value)))];
-  console.log(JSON.stringify({ scripts: paths })); app.exit(0);
+  console.log(JSON.stringify({ scripts: paths }));
+  if (process.argv.includes('--save-public-scripts')) {
+    const output = path.resolve(__dirname, '../.test-output/public-scripts');
+    await fs.mkdir(output, { recursive: true });
+    let total = 0;
+    for (const script of paths.slice(0, 100)) {
+      const response = await fetch(new URL(script, 'https://muse.ai'), { redirect: 'error', signal: AbortSignal.timeout(20000) });
+      if (!response.ok) throw new Error('public_script_unavailable');
+      const bytes = Buffer.from(await response.arrayBuffer());
+      total += bytes.length;
+      if (bytes.length > 8*1024*1024 || total > 48*1024*1024) throw new Error('public_script_limit');
+      await fs.writeFile(path.join(output, path.basename(script)), bytes);
+    }
+    console.log(JSON.stringify({ step: 'public_scripts_saved', count: paths.length, bytes: total }));
+  }
+  app.exit(0);
 }).catch(() => { console.log('MANIFEST_UNAVAILABLE'); app.exit(1); });
 app.on('window-all-closed', () => {});

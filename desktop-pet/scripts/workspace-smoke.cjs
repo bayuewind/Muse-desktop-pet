@@ -74,6 +74,40 @@ async function runWorkspaceSmoke(window) {
   await settle();
   assert.match(await text('#feedback'), /本次没有发送/, 'windows_send_shortcut_failed');
   assert.equal(await execute('document.querySelector("#draft").value'), 'Local smoke only; not transmitted', 'draft_lost');
+  await execute(`window.draftFiles.stageFiles([new File(['Synthetic local file'], 'draft-notes.txt', {type:'text/plain'})])`);
+  assert.equal(await execute('document.querySelectorAll("#input-files .input-file").length'), 1, 'stage_file_failed');
+  assert.equal((await execute('window.composer.inputList()'))[0].name, 'draft-notes.txt', 'stage_file_memory_failed');
+  await click('#capture');
+  await execute(`new Promise((resolve,reject)=>{
+    const timeout=setTimeout(()=>reject(Error('capture_dialog_timeout')),5000);
+    function check(){if(document.querySelector('#capture-dialog').open){clearTimeout(timeout);resolve();}else requestAnimationFrame(check);}check();
+  })`);
+  assert.equal(await execute('document.querySelector("#capture-canvas").width'), 640, 'capture_fixture_failed');
+  await execute(`(() => {
+    for(const [key,value] of Object.entries({x:10,y:20,width:200,height:100})){
+      const input=document.querySelector('#crop-'+key);input.value=value;input.dispatchEvent(new Event('change',{bubbles:true}));
+    }
+  })()`);
+  assert.equal(await text('#capture-size'), '200 × 100 px', 'crop_fields_failed');
+  await fs.writeFile(path.join(output, 'capture-crop.png'), (await window.webContents.capturePage()).toPNG());
+  await click('#capture-add');
+  await execute(`new Promise((resolve,reject)=>{
+    const timeout=setTimeout(()=>reject(Error('capture_stage_timeout')),5000);
+    function check(){if(!document.querySelector('#capture-dialog').open){clearTimeout(timeout);resolve();}else requestAnimationFrame(check);}check();
+  })`);
+  const staged = await execute('window.composer.inputList()');
+  assert.equal(staged.length, 2, 'capture_not_staged');
+  assert.equal(staged[1].kind, 'image', 'capture_not_image');
+  const cropDimensions = await execute(`(async()=>{
+    const result=await window.composer.inputPreview(${JSON.stringify(staged[1].id)});
+    const blob=new Blob([result.bytes],{type:'image/png'}), bitmap=await createImageBitmap(blob);
+    const resultSize={width:bitmap.width,height:bitmap.height};bitmap.close();return resultSize;
+  })()`);
+  assert.deepEqual(cropDimensions, { width: 200, height: 100 }, 'wrong_cropped_pixels');
+  await click('#capture');
+  await execute(`new Promise(resolve=>{function check(){if(document.querySelector('#capture-dialog').open)resolve();else requestAnimationFrame(check);}check();})`);
+  await click('#capture-cancel');
+  assert.equal((await execute('window.composer.inputList()')).length, 2, 'cancel_staged_capture');
   for (const [width, height] of [[580, 730], [440, 540]]) {
     window.setBounds({ width, height });
     for (const view of ['chat', 'tasks', 'library', 'settings']) {
@@ -95,6 +129,6 @@ async function runWorkspaceSmoke(window) {
   await click('#tab-tasks');
   assert.equal(await execute('!!document.querySelector("#task-list img")'), false, 'unsafe_task_html');
   assert.match(await text('#task-list'), /<img/);
-  console.log('WORKSPACE_SMOKE_PASS: navigation, search, filters, fresh/stale, busy + approval, keyboard, drafts, inert content, external allowlist, 8 screenshots');
+  console.log('WORKSPACE_SMOKE_PASS: navigation, search, filters, fresh/stale, busy + approval, keyboard, drafts, inert content, external allowlist, local files, synthetic screenshot crop/cancel, 9 screenshots');
 }
 module.exports = { runWorkspaceSmoke };

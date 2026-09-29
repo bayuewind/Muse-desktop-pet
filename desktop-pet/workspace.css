@@ -103,3 +103,28 @@ h2:first-child { margin-top: 0; }
 #workspace-feedback { font-size: 11px; color: #355d65; padding: 8px 0 0; flex: 0 0 auto; }
 @media (max-width: 460px) { main { padding: 12px; } .view-tabs button { padding: 6px 11px; } .task-label { gap: 6px; } }
 @media (max-height: 590px) { header { margin-bottom: 8px; } .view-tabs { margin-bottom: 5px; } .task-metrics { margin-bottom: 8px; padding: 6px 0; } textarea { height: 74px; } .panel-heading { margin-bottom: 8px; } }
+.input-strip { margin: 0 0 8px; flex: 0 0 auto; }
+#input-summary { display: block; color: #617782; font-size: 10px; margin: 0 0 5px; }
+#input-files { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; max-height: 80px; overflow: auto; }
+.input-file { display: flex; align-items: center; gap: 6px; min-width: 0; background: #eef3f6; border: 1px solid #d8e2e8; border-radius: 5px; padding: 3px 5px; height: 34px; }
+.input-file > svg { width: 15px; height: 15px; flex: 0 0 15px; color: #5b7584; }
+.input-file-name { display: block; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; padding: 0; border: 0; background: transparent; color: #395361; font-size: 11px; }
+.input-file-name:disabled { opacity: 1; }
+.input-file .icon-button { width: 22px; height: 22px; flex-basis: 22px; }
+.input-file .icon-button svg { width: 13px; height: 13px; flex-basis: 13px; }
+.local-preview { width: calc(100% - 32px); max-height: calc(100% - 32px); overflow: auto; padding: 14px; border: 1px solid #d3dfe4; border-radius: 8px; background: #fafbfc; color: #2a404b; }
+.local-preview::backdrop { background: #1b273955; }
+.preview-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.preview-heading strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.local-preview img { max-width: 100%; max-height: 65vh; object-fit: contain; display: block; margin: auto; }
+.file-drop-overlay { display: none; }
+body[data-file-drag=true] .file-drop-overlay { position: fixed; inset: 8px; z-index: 10; display: flex; align-items: center; justify-content: center; gap: 12px; border: 2px dashed #4b8b7c; border-radius: 6px; background: #ecf6f2ee; color: #326d60; pointer-events: none; font-size: 16px; }
+.capture-stage { height: min(320px, 48vh); background: #e4e9ed; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+#capture-canvas { max-width: 100%; max-height: 100%; width: auto; height: auto; cursor: crosshair; touch-action: none; }
+#capture-size { font-size: 10px; color: #6a7b87; white-space: nowrap; }
+.crop-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+.crop-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 10px; color: #697987; }
+.crop-fields input { min-width: 0; width: 100%; border: 1px solid #cbd6de; border-radius: 4px; padding: 5px; font: inherit; font-size: 12px; color: #324b58; background: white; }
+.preview-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.preview-actions button { border: 1px solid #cad8de; color: #47616c; background: white; padding: 7px 12px; font-size: 12px; }
+.preview-actions .primary-button { color: white; background: #286f61; border-color: #286f61; }
