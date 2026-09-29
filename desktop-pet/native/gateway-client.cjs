@@ -7,6 +7,7 @@ const { NoiseWire, encode } = require('./wire.cjs');
 const { SubscriptionDecoder } = require('./subscription.cjs');
 const { DictationDecoder, RATE, MAX_SECONDS } = require('./audio.cjs');
 const { validateChatPayload } = require('./chat-input.cjs');
+const { sessionId } = require('./conversations.cjs');
 const ROUTES = Object.freeze({
   'connection.ping': ['POST', '/api/ping'],
   'activity.list': ['GET', '/activity'],
@@ -146,6 +147,10 @@ class NativeGateway extends EventEmitter {
     });
   }
   request(method, params = {}) {
+    if (method === 'sessions.get') {
+      try { return this.requestRoute(method, ['GET', `/api/session/list/${encodeURIComponent(sessionId(params.id))}`], {}); }
+      catch { return Promise.reject(new Error('invalid_session')); }
+    }
     if (!Object.hasOwn(ROUTES, method)) return Promise.reject(new Error('read_only_method_required'));
     return this.requestRoute(method, ROUTES[method], params);
   }

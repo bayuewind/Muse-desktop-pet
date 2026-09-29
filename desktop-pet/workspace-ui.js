@@ -261,7 +261,11 @@
     void savePreferences({ quietUntil: duration ? Date.now() + duration : 0 });
   };
   function receiveWorkspace(value) { if (value) { workspace = value; renderWorkspace(); } }
-  function receiveReplies(value) { if (value) { replies = value; renderLibrary(); } }
+  function receiveReplies(value) {
+    if (value && (value.sessionId ?? null) === (window.museDraft?.sessionId() ?? null) &&
+        (value.selection ?? 0) === (window.museDraft?.selection() ?? 0)) { replies = value; renderLibrary(); }
+  }
+  document.addEventListener('composer:session-change', () => { replies = { messages: [] }; renderLibrary(); });
   window.composer.onWorkspace(receiveWorkspace);
   function receiveSpaces(value) { if (value) { spaces = value; renderSpaces(); } }
   window.composer.onSpaces(receiveSpaces);

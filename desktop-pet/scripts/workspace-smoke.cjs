@@ -37,6 +37,28 @@ async function runWorkspaceSmoke(window) {
   await send('pet:state', { mode: 'native', kind: 'working', label: '正在工作' });
   await send('composer:workspace', fixture);
   await send('composer:replies', { messages, unread: 1 });
+  const sessions = { activeId: null, selection: 0, title: '主会话', ready: true, phase: 'ready', fresh: true,
+    rows: [{ id: 'side-a', title: '阅读计划', thread: true, primary: false },
+      { id: 'side-b', title: '项目讨论', thread: true, primary: false }] };
+  await send('composer:sessions', sessions);
+  await input('#draft', 'Main draft retained');
+  await send('composer:sessions', { ...sessions, activeId: 'side-a', selection: 1, title: '阅读计划' });
+  assert.equal(await execute('document.querySelector("#draft").value'), '', 'side_inherited_main_draft');
+  await input('#draft', 'Side draft retained');
+  await send('composer:replies', { sessionId: 'side-a', selection: 1, unread: 1, messages: [{ ...messages[0], text: 'Side reply only' }] });
+  assert.match(await text('#replies'), /Side reply only/);
+  await send('composer:replies', { sessionId: null, selection: 0, unread: 1, messages });
+  assert.equal((await text('#replies')).includes('今天的练习'), false, 'late_main_crossed_into_thread');
+  await send('composer:sessions', { ...sessions, selection: 2 });
+  assert.equal(await execute('document.querySelector("#draft").value'), 'Main draft retained', 'main_draft_not_restored');
+  await send('composer:replies', { sessionId: 'side-a', selection: 1, unread: 1, messages: [{ ...messages[0], text: 'Side reply only' }] });
+  assert.equal((await text('#replies')).includes('Side reply only'), false, 'late_thread_crossed_into_main');
+  await send('composer:sessions', { ...sessions, activeId: 'side-a', selection: 3, title: '阅读计划', ready: false, phase: 'connecting' });
+  assert.equal(await execute('document.querySelector("#draft").value'), 'Side draft retained', 'side_draft_not_restored');
+  assert.equal(await execute('document.querySelector("#send").disabled'), true, 'unsynced_thread_send_enabled');
+  await send('composer:sessions', sessions);
+  await input('#draft', '');
+  await send('composer:replies', { messages, unread: 1 });
   const spaces = {
     goals: { online: true, fresh: true, updatedAt: now, partial: true, rows: [
       { id: 'g1', title: '建立每周学习节奏', summary: '复习英语与阅读笔记。', description: '保持可持续的学习安排。',
@@ -229,6 +251,6 @@ async function runWorkspaceSmoke(window) {
   await click('#tab-spaces');
   assert.equal(await execute('!!document.querySelector("#spaces-list img, #spaces-list script")'), false, 'unsafe_goal_html');
   assert.match(await text('#spaces-list'), /<img/);
-  console.log('WORKSPACE_SMOKE_PASS: navigation, search, filters, fresh/stale, goals/ideas, append-only drafts, inert content, keyboard, busy + approval, silent audio decode/speed/replay/exclusivity, external allowlist, local files, synthetic screenshot crop/cancel, 11 screenshots');
+  console.log('WORKSPACE_SMOKE_PASS: navigation, scoped replies/drafts, search, filters, fresh/stale, goals/ideas, append-only drafts, inert content, keyboard, busy + approval, silent audio decode/speed/replay/exclusivity, external allowlist, local files, synthetic screenshot crop/cancel, 11 screenshots');
 }
 module.exports = { runWorkspaceSmoke };

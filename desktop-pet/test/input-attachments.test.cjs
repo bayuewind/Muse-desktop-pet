@@ -51,7 +51,7 @@ test('selected local file reads are bounded and only retained in memory', async 
 });
 test('inline contract matches official image/file/text items and excludes arbitrary refs', () => {
   const items = attachmentItems([{ name: 'cover.png', bytes: png() }, { name: 'notes.md', bytes: Buffer.from('Notes') }]);
-  const payload = validateChatPayload({ items: [...items, { type: 'text', text: 'Please review' }], capabilities: ['unsafe'], session_id: 'wrong' });
+  const payload = validateChatPayload({ items: [...items, { type: 'text', text: 'Please review' }], capabilities: ['unsafe'] });
   assert.deepEqual(payload.capabilities, []); assert.equal(payload.items[0].type, 'image'); assert.equal(payload.items[1].type, 'file');
   assert.equal(Object.hasOwn(payload, 'session_id'), false);
   assert.throws(() => validateChatPayload({ items: [{ type: 'file_ref', path: '/etc/passwd' }] }));

@@ -123,9 +123,10 @@
   window.composer.onHidden(releasePreviews);
   window.draftFiles = Object.freeze({
     ids: () => files.map(file => file.id),
-    sync: async () => accept(await window.composer.inputList()),
+    sync: async () => { const at = epoch, value = await window.composer.inputList(); if (at === epoch) accept(value); },
     setDisabled(value) { if (disabled !== value) { disabled = value; render(); } },
     stageFiles,
   });
+  document.addEventListener('composer:session-change', () => { releasePreviews(); accept([]); void window.draftFiles.sync(); });
   void window.draftFiles.sync();
 })();

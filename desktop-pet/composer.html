@@ -24,7 +24,8 @@
       <button id="tab-settings" class="settings-tab" role="tab" aria-selected="false" aria-controls="panel-settings" aria-label="桌面设置" title="桌面设置" data-view="settings" tabindex="-1"><i data-lucide="settings-2"></i></button>
     </nav>
     <section id="panel-chat" class="view-panel chat-panel" role="tabpanel" aria-labelledby="tab-chat">
-    <div class="feed-toolbar"><span>主会话</span><button id="refresh-replies" class="icon-button" title="同步近期回复" aria-label="同步近期回复"><i data-lucide="refresh-cw"></i></button></div>
+    <div class="feed-toolbar"><select id="session-select" aria-label="当前会话"><option value="">主会话</option></select><button id="refresh-sessions" class="icon-button" title="刷新会话列表" aria-label="刷新会话列表"><i data-lucide="list-restart"></i></button><button id="refresh-replies" class="icon-button" title="同步近期回复" aria-label="同步近期回复"><i data-lucide="refresh-cw"></i></button></div>
+    <div id="session-status" class="session-status" role="status" hidden></div>
     <section id="replies" class="replies" aria-label="Muse 回复" aria-live="polite"><p class="empty">暂无近期回复</p></section>
     <button id="new-replies" class="new-replies" hidden>查看新回复</button>
     <div id="input-strip" class="input-strip" hidden><span id="input-summary"></span><div id="input-files"></div></div>
@@ -65,7 +66,7 @@
       <label class="search-field"><i data-lucide="search"></i><input id="library-search" type="search" placeholder="搜索文件名" aria-label="搜索文件名" maxlength="200"></label>
       <div class="segment-control" role="group" aria-label="成果类型"><button data-library-filter="all" aria-pressed="true">全部</button><button data-library-filter="image" aria-pressed="false">图片</button><button data-library-filter="audio" aria-pressed="false">音频</button><button data-library-filter="code" aria-pressed="false">代码</button><button data-library-filter="file" aria-pressed="false">文件</button></div>
       <div id="library-list" class="panel-scroll" aria-label="成果列表"><p class="empty">暂无收到的附件</p></div>
-      <div class="panel-bottom"><span>近期主会话附件</span><button data-official="library">完整资源库<i data-lucide="external-link"></i></button></div>
+      <div class="panel-bottom"><span id="library-scope">近期主会话附件</span><button data-official="library">完整资源库<i data-lucide="external-link"></i></button></div>
     </section>
     <section id="panel-settings" class="view-panel" role="tabpanel" aria-labelledby="tab-settings" hidden>
       <div class="panel-heading"><div><h1>桌面设置</h1><p>Muse Desktop Pet</p></div></div>
@@ -100,6 +101,7 @@
   <script src="crop-geometry.js"></script>
   <script src="capture-ui.js"></script>
   <script src="composer.js"></script>
+  <script src="sessions-ui.js"></script>
   <script src="workspace-ui.js"></script>
 </body>
 </html>

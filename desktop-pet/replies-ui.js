@@ -65,6 +65,8 @@
   }
   function render(snapshot) {
     if(!snapshot)return;
+    if((snapshot.sessionId??null)!==(window.museDraft?.sessionId()??null))return;
+    if((snapshot.selection??0)!==(window.museDraft?.selection()??0))return;
     const nearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<70;
     if(snapshot.messages.length)feed.querySelector('.empty')?.remove();
     const wanted=new Set(snapshot.messages.map(message=>message.id));
@@ -98,6 +100,11 @@
     catch{button.title='同步失败';}finally{button.disabled=false;}
   };
   window.composer.onReplies(render);
+  document.addEventListener('composer:session-change', () => {
+    epoch++; for(const key of [...media.keys()])release(key);
+    rows.clear();feed.replaceChildren(textNode('p','等待当前会话同步','empty'));newer.hidden=true;
+    void window.composer.replies().then(render);
+  });
   window.composer.onHidden(()=>{epoch++;for(const key of [...media.keys()])release(key);});
   window.composer.onFocus(()=>{void window.composer.replies().then(render);});
   void window.composer.replies().then(render);

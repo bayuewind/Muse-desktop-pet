@@ -1,4 +1,5 @@
 'use strict';
+const { sessionId } = require('./conversations.cjs');
 const MAX_FILES = 4, MAX_BYTES = 8 * 1024 * 1024;
 const MIME = Object.freeze({
   txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', json: 'application/json',
@@ -41,10 +42,11 @@ function attachmentItems(attachments) {
 }
 function validateChatPayload(params) {
   if (!params || typeof params !== 'object') throw new Error('invalid_message');
+  const scope = params.session_id == null ? {} : { session_id: sessionId(params.session_id) };
   if (!params.items) {
     if (typeof params.message !== 'string' || !params.message.trim() || Buffer.byteLength(params.message) > 32768)
       throw new Error('invalid_message');
-    return { message: params.message, capabilities: [] };
+    return { message: params.message, capabilities: [], ...scope };
   }
   if (!Array.isArray(params.items) || !params.items.length || params.items.length > MAX_FILES + 1) throw new Error('invalid_message');
   let total = 0, files = 0, texts = 0;
@@ -64,6 +66,6 @@ function validateChatPayload(params) {
       return { type: info.kind, filename: info.filename, mime_type: info.mime_type, data_base64: item.data_base64 };
     } finally { bytes.fill(0); }
   });
-  return { items, capabilities: [] };
+  return { items, capabilities: [], ...scope };
 }
 module.exports = { MAX_FILES, MAX_BYTES, MIME, filename, fileInfo, attachmentItems, validateChatPayload };

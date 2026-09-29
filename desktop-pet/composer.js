@@ -6,7 +6,8 @@ document.querySelector('#shortcut').textContent = `${shortcutLabel}⇧M 快速�
 document.querySelector('#account').addEventListener('click', () => window.composer.accountMenu());
 let connected = false, sending = false, transcribing = false, requestingMic = false, recording = null, attaching = false;
 let revision = 0, operation = 0, currentDraftId = crypto.randomUUID();
-const uncertainDrafts = new Set();
+let uncertainDrafts = new Set(), activeSessionId = null, activeSelection = 0, activeSessionTitle = '主会话', sessionReady = true, switchingSession = false;
+const sessionDrafts = new Map();
 function draftKey() { return JSON.stringify([draft.value, window.draftFiles?.ids() ?? []]); }
 async function deadline(promise, ms) {
   let timer;
@@ -16,13 +17,15 @@ async function deadline(promise, ms) {
 function note(text, level = '') { feedback.textContent = text; feedback.dataset.level = level; }
 function update() {
   document.querySelector('#count').textContent = `${draft.value.length} / 8000`;
-  send.disabled = !connected || sending || transcribing || requestingMic || !!recording || attaching ||
+  send.disabled = !connected || !sessionReady || switchingSession || sending || transcribing || requestingMic || !!recording || attaching ||
     (!draft.value.trim() && !window.draftFiles?.ids().length) || uncertainDrafts.has(draftKey());
   send.innerHTML = sending ? '<i data-lucide="loader-circle"></i><span>发送中</span>' : '<i data-lucide="arrow-up"></i><span>发送</span>';
   send.title = `发送 (${shortcutLabel}+Enter)`;
-  voice.disabled = sending || transcribing || requestingMic || attaching || (!connected && !recording);
-  document.querySelector('#capture').disabled = sending || transcribing || requestingMic || attaching || !!recording;
-  window.draftFiles?.setDisabled(sending || transcribing || requestingMic || !!recording);
+  voice.disabled = switchingSession || !sessionReady || sending || transcribing || requestingMic || attaching || (!connected && !recording);
+  document.querySelector('#capture').disabled = switchingSession || sending || transcribing || requestingMic || attaching || !!recording;
+  window.draftFiles?.setDisabled(switchingSession || sending || transcribing || requestingMic || !!recording);
+  document.querySelector('#session-select').disabled = switchingSession || sending || transcribing || requestingMic || attaching || !!recording;
+  draft.disabled = switchingSession;
   const voiceLabel = recording ? '停止并转写' : transcribing ? '转写中' : requestingMic ? '等待麦克风' : '语音输入';
   voice.innerHTML = `<i data-lucide="${recording ? 'square' : transcribing || requestingMic ? 'loader-circle' : 'mic'}"></i>`;
   voice.title = voiceLabel; voice.setAttribute('aria-label', voiceLabel);
@@ -44,8 +47,15 @@ document.addEventListener('composer:attachments-changed', () => { revision++; cu
 document.addEventListener('composer:input-busy', event => { attaching = event.detail; update(); });
 document.addEventListener('composer:input-note', event => note(event.detail.text, event.detail.level));
 window.museDraft = Object.freeze({
+  sessionId: () => activeSessionId,
+  selection: () => activeSelection,
+  beginSwitch() {
+    if (switchingSession || sending || transcribing || requestingMic || recording || attaching || document.querySelector('dialog[open]')) return false;
+    switchingSession = true; cancelAudio(); update(); return true;
+  },
+  endSwitch() { switchingSession = false; update(); },
   appendContext(text) {
-    if (sending || transcribing || requestingMic || recording || attaching) return { ok: false, reason: 'busy' };
+    if (switchingSession || sending || transcribing || requestingMic || recording || attaching) return { ok: false, reason: 'busy' };
     if (typeof text !== 'string' || !text.trim()) return { ok: false, reason: 'invalid' };
     const next = draft.value + (draft.value ? '\n\n' : '') + text;
     if (next.length > 8000) return { ok: false, reason: 'length' };
@@ -54,13 +64,25 @@ window.museDraft = Object.freeze({
     return { ok: true };
   },
 });
+document.addEventListener('composer:session-change', event => {
+  sessionDrafts.set(activeSessionId, { text: draft.value, id: currentDraftId, uncertain: uncertainDrafts });
+  activeSessionId = event.detail.activeId;
+  activeSelection = event.detail.selection ?? 0;
+  const saved = sessionDrafts.get(activeSessionId);
+  draft.value = saved?.text ?? ''; currentDraftId = saved?.id ?? crypto.randomUUID();
+  uncertainDrafts = saved?.uncertain ?? new Set(); revision++; note(''); cancelAudio(); update();
+});
+document.addEventListener('composer:session-state', event => {
+  activeSessionTitle = event.detail.title || '当前会话'; sessionReady = event.detail.ready;
+  draft.placeholder = `给${activeSessionTitle}发送消息…`; update();
+});
 async function submit() {
   if (send.disabled) return;
   const text = draft.value, id = currentDraftId, atRevision = revision, key = draftKey();
   const attachmentIds = window.draftFiles?.ids() ?? [];
-  sending = true; note('正在发送到 Muse 主会话…'); update();
+  sending = true; note(`正在发送到 Muse「${activeSessionTitle}」…`); update();
   try {
-    const result = await window.composer.send({ id, text, attachmentIds });
+    const result = await window.composer.send({ id, text, attachmentIds, sessionId: activeSessionId });
     if (result?.status === 'accepted') {
       if (revision === atRevision) { draft.value = ''; currentDraftId = crypto.randomUUID(); revision++; }
       await window.draftFiles?.sync();

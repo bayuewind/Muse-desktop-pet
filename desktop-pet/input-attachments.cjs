@@ -61,4 +61,21 @@ class InputAttachments {
   }
   clear() { this.generation++; for (const id of this.rows.keys()) this.remove(id); }
 }
-module.exports = { InputAttachments };
+class AttachmentSessions {
+  constructor() { this.stores = new Map([[null, new InputAttachments()]]); this.activeId = null; }
+  get active() { return this.stores.get(this.activeId); }
+  select(id) {
+    for (const [key, store] of this.stores) if (key !== this.activeId && !store.rows.size) this.stores.delete(key);
+    if (!this.stores.has(id)) {
+      if (this.stores.size >= 8 && this.active.rows.size) throw new Error('attachment_session_capacity');
+      if (!this.active.rows.size) this.stores.delete(this.activeId);
+      this.stores.set(id, new InputAttachments());
+    }
+    this.activeId = id; return this.active;
+  }
+  clear() {
+    for (const store of this.stores.values()) store.clear();
+    this.stores = new Map([[null, new InputAttachments()]]); this.activeId = null;
+  }
+}
+module.exports = { InputAttachments, AttachmentSessions };

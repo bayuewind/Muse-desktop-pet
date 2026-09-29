@@ -2,6 +2,13 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('composer', Object.freeze({
   state: () => ipcRenderer.invoke('composer:state'),
+  sessions: () => ipcRenderer.invoke('composer:sessions'),
+  refreshSessions: () => ipcRenderer.invoke('composer:refresh-sessions'),
+  selectSession: id => ipcRenderer.invoke('composer:select-session', id),
+  onSessions: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('composer:sessions', listener); return () => ipcRenderer.removeListener('composer:sessions', listener);
+  },
   workspace: () => ipcRenderer.invoke('composer:workspace'),
   refreshWorkspace: () => ipcRenderer.invoke('composer:refresh-workspace'),
   spaces: () => ipcRenderer.invoke('composer:spaces'),

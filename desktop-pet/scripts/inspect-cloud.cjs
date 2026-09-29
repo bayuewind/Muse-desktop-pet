@@ -39,6 +39,19 @@ app.whenReady().then(async () => {
     console.log(JSON.stringify({ step: 'normalized_spaces_verified', goals: snapshot.goals.rows.length,
       ideas: snapshot.ideas.rows.length, goalsFresh: snapshot.goals.fresh, ideasFresh: snapshot.ideas.fresh,
       goalsPartial: snapshot.goals.partial, ideasPartial: snapshot.ideas.partial }));
+    const sessions = await source.refreshConversations();
+    if (!sessions.ok) throw new Error('sessions_integration_failed');
+    const list = source.sessionSnapshot();
+    const primary = source.conversations.rows.find(row => row.primary);
+    let detailVerified = false;
+    if (primary) {
+      const response = await source.client.request('sessions.get', { id: primary.id });
+      const row = response.session ?? response;
+      detailVerified = row.session_id === primary.id && row.is_primary === true && row.is_thread === false;
+      if (!detailVerified) throw new Error('session_identity_mismatch');
+    }
+    console.log(JSON.stringify({ step: 'normalized_sessions_verified', count: list.rows.length,
+      threads: list.rows.filter(row => row.thread && !row.primary && !row.archived).length, fresh: list.fresh, primaryDetailVerified: detailVerified }));
   }
   await source.stop();
   app.exit(0);

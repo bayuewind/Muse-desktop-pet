@@ -10,6 +10,8 @@ const { ReplyStore } = require('./replies.cjs');
 const { readAttachment } = require('./attachments.cjs');
 const { WorkspaceModel } = require('./workspace.cjs');
 const { SpacesModel } = require('./spaces.cjs');
+const { Conversations } = require('./conversations.cjs');
+const { ThreadChat } = require('./thread-chat.cjs');
 class NativeSource extends EventEmitter {
   constructor(vault) {
     super(); this.vault = vault; this.state = new NativeStatus(); this.generation = 0;
@@ -17,16 +19,33 @@ class NativeSource extends EventEmitter {
     this.outgoing = new OutgoingTasks();
     this.replies = new ReplyStore(() => {
       if (this.replyTimer) return;
-      this.replyTimer = setTimeout(() => { this.replyTimer = null; this.emit('replies', this.replies.snapshot()); }, 100);
+      this.replyTimer = setTimeout(() => { this.replyTimer = null; this.emit('replies', this.replySnapshot()); }, 100);
     });
     this.assetCache = new Map(); this.assetCacheBytes = 0;
     this.workspace = new WorkspaceModel(); this.pollWorkspace = null;
     this.spaces = new SpacesModel(); this.spacesRequest = null;
+    this.conversations = new Conversations(); this.conversationsRequest = null; this.thread = null; this.sessionGeneration = 0;
+  }
+  get activeSessionId() { return this.thread?.id ?? null; }
+  get displayReplies() { return this.thread?.replies ?? this.replies; }
+  replySnapshot() {
+    return { ...this.displayReplies.snapshot(), sessionId: this.activeSessionId, selection: this.sessionGeneration,
+      totalUnread: Math.min(99, this.replies.unread + (this.thread?.replies.unread ?? 0)) };
+  }
+  sessionSnapshot() {
+    const list = this.conversations.snapshot();
+    const online = this.running && this.state.phase === 'connected' && this.client?.ready && !this.client.closed;
+    return { ...list, fresh: !!online && list.fresh, activeId: this.activeSessionId, selection: this.sessionGeneration,
+      title: this.thread ? this.conversations.rows.find(row => row.id === this.thread.id)?.title || '旁聊' : '主会话',
+      ready: !!online && (!this.thread || this.thread.phase === 'ready' && !this.thread.restriction),
+      restriction: this.thread?.restriction ?? null,
+      phase: this.thread?.phase ?? (online ? 'ready' : 'disconnected') };
   }
   publish() {
     const view = this.state.view(); this.emit('state', view);
     this.emit('workspace', this.workspace.snapshot(this.state));
     this.emit('spaces', this.spaces.snapshot(this.state));
+    this.emit('sessions', this.sessionSnapshot());
     const log = JSON.stringify({ kind: view.kind, label: view.label, detail: view.detail, schedules: view.schedules, recentRuns: view.recentRuns });
     if (log !== this.lastLog) { this.lastLog = log; console.log(`NATIVE_STATE ${log}`); }
   }
@@ -48,6 +67,7 @@ class NativeSource extends EventEmitter {
     let lastActivityAttempt = 0;
     this.workspace.reconnect();
     this.spaces.reconnect();
+    this.thread?.stop();
     client.on('chat-event', (type, payload, meta) => {
       if (current()) {
         const context = { ...meta, epoch };
@@ -108,6 +128,8 @@ class NativeSource extends EventEmitter {
       try { const startedAt = Date.now(); const history = await client.request('chat.history', { limit: 20 }); if (current()) this.replies.history(history, startedAt); } catch {}
       await poll();
       if (!current()) return;
+      if (this.thread) void this.thread.start();
+      void this.refreshConversations();
       this.interval(() => void ping(), 15000);
       this.interval(() => void poll(), 10000);
       this.interval(() => { if (current()) this.publish(); }, 2000);
@@ -146,6 +168,59 @@ class NativeSource extends EventEmitter {
     if (!this.running || !this.client?.ready || this.client.closed || !this.pollWorkspace) return { ok: false };
     return this.pollWorkspace();
   }
+  async refreshConversations() {
+    const client = this.client, generation = this.generation;
+    if (!this.running || !client?.ready || client.closed) return { ok: false };
+    if (this.conversationsRequest?.client === client) return this.conversationsRequest.promise;
+    const current = () => this.running && generation === this.generation && this.client === client && !client.closed;
+    const request = { client };
+    this.conversationsRequest = request;
+    request.promise = (async () => {
+      try {
+        const response = await client.request('sessions.list', {});
+        if (!current()) return { ok: false };
+        this.conversations.update(response);
+        return { ok: true };
+      } catch {
+        if (current()) this.conversations.failed = true;
+        return { ok: false };
+      } finally {
+        if (current()) this.emit('sessions', this.sessionSnapshot());
+        if (this.conversationsRequest === request) this.conversationsRequest = null;
+      }
+    })();
+    return request.promise;
+  }
+  async selectSession(id) {
+    if (!this.conversations.selectable(id) || !this.running) return { ok: false };
+    if (id === this.activeSessionId) return { ok: true };
+    this.sessionGeneration++;
+    this.cancelDictation(); this.thread?.clear(); this.thread = null;
+    for (const item of this.assetCache.values()) item.value.bytes.fill(0);
+    this.assetCache.clear(); this.assetCacheBytes = 0;
+    if (id !== null) {
+      const thread = new ThreadChat(id, async current => {
+        const auth = new NativeAuth(this.vault), credentials = await auth.credentials();
+        if (!current() || !this.running || this.thread !== thread) throw new Error('cancelled');
+        const client = new NativeGateway();
+        try {
+          await client.connect(credentials, pinnedStandardVerifier(this.vault.load().peerPolicy));
+          if (!current() || !this.running || this.thread !== thread) throw new Error('cancelled');
+          return client;
+        } catch (error) { client.close(); throw error; }
+      });
+      this.thread = thread;
+      thread.on('state', () => {
+        if (this.running && this.thread === thread) this.emit('sessions', this.sessionSnapshot());
+      });
+      thread.on('replies', () => {
+        if (this.running && this.thread === thread) this.emit('replies', this.replySnapshot());
+      });
+    }
+    this.emit('sessions', this.sessionSnapshot()); this.emit('replies', this.replySnapshot());
+    if (this.thread) await this.thread.start();
+    return { ok: this.running && this.activeSessionId === id };
+  }
   async refreshSpaces() {
     const client = this.client, generation = this.generation;
     if (!this.running || !client?.ready || client.closed) return { ok: false };
@@ -167,6 +242,7 @@ class NativeSource extends EventEmitter {
     return request.promise;
   }
   async refreshReplies() {
+    if (this.thread) return this.thread.refresh();
     const client = this.client, generation = this.generation;
     if (!client?.ready || client.closed) return { ok: false };
     try { const startedAt = Date.now(); const history = await client.request('chat.history', { limit: 20 });
@@ -175,14 +251,15 @@ class NativeSource extends EventEmitter {
     } catch { return { ok: false }; }
   }
   async attachment(messageId, assetId) {
-    const attachment = this.replies.asset(messageId, assetId);
+    const store = this.displayReplies, selection = this.sessionGeneration;
+    const attachment = store.asset(messageId, assetId);
     if (!attachment) throw new Error('attachment_not_registered');
     const key = `${messageId}:${assetId}`, cached = this.assetCache.get(key);
     if (cached && Date.now()-cached.at < 60000) return cached.value;
     if (!this.client?.ready || this.client.closed) throw new Error('not_connected');
     const generation = this.generation;
     const value = await readAttachment(this.client, attachment);
-    if (generation !== this.generation) throw new Error('connection_changed');
+    if (generation !== this.generation || store !== this.displayReplies || selection !== this.sessionGeneration) throw new Error('connection_changed');
     if (cached) { this.assetCacheBytes -= cached.value.size; this.assetCache.delete(key); }
     while (this.assetCache.size >= 8 || this.assetCacheBytes + value.size > 32*1024*1024) {
       const oldest = this.assetCache.keys().next().value;
@@ -194,10 +271,15 @@ class NativeSource extends EventEmitter {
   }
   submitTask(draft) {
     const client = this.client, generation = this.generation;
-    return this.outgoing.submit(draft, {
-      canSend: () => this.running && generation === this.generation && client?.ready && !client.closed && this.state.phase === 'connected' &&
+    const canSend = () => this.running && generation === this.generation && client?.ready && !client.closed && this.state.phase === 'connected' &&
         !this.state.view().requiresApproval && !this.state.view().limited &&
-        !['unknown','login','syncing','approval','limited'].includes(this.state.view().kind),
+        !['unknown','login','syncing','approval','limited'].includes(this.state.view().kind);
+    if (this.thread) {
+      const thread = this.thread;
+      return thread.submit(draft, () => this.thread === thread && canSend());
+    }
+    return this.outgoing.submit({ ...draft, sessionId: null }, {
+      canSend,
       dispatch: payload => client.sendChat(payload),
     });
   }
@@ -239,11 +321,13 @@ class NativeSource extends EventEmitter {
     this.assetCache.clear(); this.assetCacheBytes = 0;
     this.workspace.reset(); this.pollWorkspace = null;
     this.spaces.reset(); this.spacesRequest = null;
+    this.thread?.clear(); this.thread = null; this.conversations.reset(); this.conversationsRequest = null;
     this.removeAllListeners();
   }
   async stop() {
     this.running = false; this.generation++; this.clearTimers(); this.client?.close(); this.client = null;
     this.cancelDictation();
+    this.thread?.stop();
     this.replies.interrupted();
   }
 }

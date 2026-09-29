@@ -134,3 +134,5 @@ body[data-file-drag=true] .file-drop-overlay { position: fixed; inset: 8px; z-in
 .audio-player audio { width: 100%; max-width: 100%; height: 40px; }
 .audio-tools { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .audio-tools select { padding: 5px; border: 1px solid #ced8de; border-radius: 5px; background: white; color: #435c68; font-size: 11px; }
+#session-select { flex: 1; min-width: 0; max-width: calc(100% - 76px); border: 1px solid #d6dee4; border-radius: 5px; background: white; color: #435c68; padding: 5px 7px; font: inherit; font-size: 11px; text-overflow: ellipsis; }
+.session-status { font-size: 10px; color: #85652e; line-height: 1.5; margin-bottom: 5px; flex-shrink: 0; }

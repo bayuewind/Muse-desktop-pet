@@ -1,8 +1,14 @@
 'use strict';
 const { extractAttachments } = require('./attachments.cjs');
 const LIMIT = 128*1024;
-function visible(payload) {
-  if (!payload || typeof payload !== 'object' || payload.subagent_id || payload.is_thread === true) return false;
+function visible(payload, sessionId = null) {
+  if (!payload || typeof payload !== 'object' || payload.subagent_id) return false;
+  if (sessionId === null) {
+    if (payload.is_thread === true || payload.thread_id) return false;
+  } else {
+    if (payload.is_thread === false || payload.thread_id && payload.thread_id !== sessionId ||
+        payload.session_id && payload.session_id !== sessionId) return false;
+  }
   if (payload.transcript_surface && payload.transcript_surface !== 'main_chat') return false;
   if (payload.stream_lane && !['main','primary','assistant','visible','output'].includes(payload.stream_lane)) return false;
   if (['hidden','internal','reasoning'].includes(payload.visibility)) return false;
@@ -13,10 +19,10 @@ function contentText(value) {
   if (!Array.isArray(value)) return null;
   return value.filter(part => part && ['text','output_text'].includes(part.type) && typeof part.text === 'string').map(part => part.text).join('\n');
 }
-function canonicalText(payload) {
+function canonicalText(payload, sessionId = null) {
   const transcript = payload.transcript?.messages;
   if (Array.isArray(transcript)) {
-    const parts = transcript.filter(message => message.role === 'assistant' && visible(message)).map(message => contentText(message.content)).filter(text => text != null);
+    const parts = transcript.filter(message => message.role === 'assistant' && visible(message, sessionId)).map(message => contentText(message.content)).filter(text => text != null);
     if (parts.length) return parts.join('\n');
   }
   for (const value of [payload.content, payload.payload?.content, payload.text, payload.payload?.text]) {
@@ -36,7 +42,9 @@ function blocks(text) {
   return result;
 }
 class ReplyStore {
-  constructor(onChange = () => {}) { this.rows = new Map(); this.onChange = onChange; this.unread = 0; this.unreadIds = new Set(); }
+  constructor(onChange = () => {}, { sessionId = null } = {}) {
+    this.rows = new Map(); this.onChange = onChange; this.unread = 0; this.unreadIds = new Set(); this.sessionId = sessionId;
+  }
   row(id, role, time) {
     if (typeof id !== 'string' || !id || id.length > 512) return null;
     let row = this.rows.get(id);
@@ -49,7 +57,7 @@ class ReplyStore {
     return row;
   }
   ingest(type, payload, meta = {}, { history = false } = {}) {
-    if (!visible(payload) || payload.payload && !visible(payload.payload)) return false;
+    if (!visible(payload, this.sessionId) || payload.payload && !visible(payload.payload, this.sessionId)) return false;
     if (type === 'delta.message_removed') {
       for (const id of payload.message_ids ?? []) { this.rows.delete(id); this.unreadIds.delete(id); }
       this.unread = Math.min(99, this.unreadIds.size);
@@ -76,7 +84,7 @@ class ReplyStore {
       // A presentation can arrive between text deltas; it is not completion.
       if (history && !row.text) row.state = 'done';
     } else {
-      const text = canonicalText(payload);
+      const text = canonicalText(payload, this.sessionId);
       if (text != null) row.text = text;
       const status = payload.status ?? payload.transcript?.status;
       row.state = status === 'interrupted' ? 'interrupted' : status === 'error' ? 'error'
@@ -100,7 +108,7 @@ class ReplyStore {
     const events = response?.chat_events;
     if (Array.isArray(events)) {
       for (const event of events) {
-        if (!visible(event) || event.payload && !visible(event.payload)) continue;
+        if (!visible(event, this.sessionId) || event.payload && !visible(event.payload, this.sessionId)) continue;
         const type = event.event_name ?? event.event ?? (event.role === 'user' ? 'message.user' : 'message.assistant');
         if (['message.user','message.assistant','delta.presentation','delta.message_done'].includes(type)) {
           const payload = { ...event, ...(event.payload ?? {}) };
