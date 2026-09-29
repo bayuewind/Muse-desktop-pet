@@ -1,0 +1,51 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { randomBytes } = require('node:crypto');
+const { CipherState } = require('../native/noise-xx.cjs');
+const { encode, decode, chunks, ChunkAssembler, NoiseWire } = require('../native/wire.cjs');
+const { SubscriptionDecoder } = require('../native/subscription.cjs');
+const { gatewayURL, pinnedStandardVerifier, NativeGateway } = require('../native/gateway-client.cjs');
+test('framing reassembles out-of-order chunks and poisons duplicate packets', () => {
+  const data = randomBytes(200000), frames = chunks(data), assembler = new ChunkAssembler();
+  let result; for (const frame of [...frames].reverse()) result = assembler.accept(frame) ?? result;
+  assert.deepEqual(result, data);
+  const bad = new ChunkAssembler(); bad.accept(frames[0]);
+  assert.throws(() => bad.accept(frames[0]), /invalid/);
+  assert.throws(() => bad.accept(frames[1]), /dead/);
+});
+test('plaintext protobuf request and encrypted server reply are interoperable', () => {
+  const tx = randomBytes(32), rx = randomBytes(32);
+  const wire = new NoiseWire(new CipherState(tx), new CipherState(rx));
+  const request = wire.request('POST', '/tasks/subscribe', {});
+  const serverDecode = new ChunkAssembler(), serverRx = new CipherState(tx), serverTx = new CipherState(rx);
+  const envelope = serverDecode.accept(serverRx.decrypt(request.frames[0]));
+  const service = decode('ServiceRequest', envelope), frame = decode('Frame', service.payload);
+  assert.equal(service.service, 0); assert.equal(frame.request.path, '/tasks/subscribe');
+  assert.equal(frame.request.body.toString(), '{}'); assert.equal(frame.request.endBody, true);
+  const payload = encode('Frame', { streamId: request.streamId, response: { status: 200, body: Buffer.from('{"ok":true}'), endBody: true } });
+  const response = chunks(encode('ServiceResponse', { payload }))[0];
+  const decoded = wire.accept(serverTx.encrypt(response));
+  assert.equal(decoded.value.status, 200); assert.equal(decoded.value.body.toString(), '{"ok":true}');
+});
+test('subscription parses byte-split UTF-8 and emits ONLY status events', () => {
+  const events = [], acks = [];
+  const decoder = new SubscriptionDecoder({ onAck: a => acks.push(a), onEvent: (...event) => events.push(event) });
+  const bytes = Buffer.from('{"ok":true,"result":{}}\n{"type":"event","event":"message.user","payload":{"text":"不输出聊天"}}\n{"type":"event","event":"agent.status","payload":{"agent_id":"a","activity_code":"working"},"seq":4}\n');
+  for (const byte of bytes) decoder.push(Buffer.from([byte]));
+  assert.equal(acks.length, 1); assert.equal(events.length, 1); assert.equal(events[0][0], 'agent.status');
+  assert.doesNotMatch(JSON.stringify(events), /不输出聊天/);
+  assert.throws(() => decoder.push(Buffer.from('not json\n')), /protocol/);
+  assert.throws(() => decoder.push(Buffer.alloc(0)), /dead/);
+});
+test('gateway is allowlisted; peer policy is mandatory; state client cannot send messages', async () => {
+  assert.equal(gatewayURL({ vmId: 'test-vm', authToken: 'test-only' }).host, 'hatch.metaaivm.com');
+  assert.throws(() => gatewayURL({ vmId: 'a&auth_token=other', authToken: 'test' }), /invalid/);
+  assert.throws(() => pinnedStandardVerifier({}), /policy/);
+  const verify = pinnedStandardVerifier({ vmType: 'standard', attestationTier: 'off', serverKeyHex: '11'.repeat(32) });
+  assert.equal(await verify({ payload: Buffer.alloc(0), serverKey: Buffer.alloc(32, 17) }), true);
+  await assert.rejects(verify({ payload: Buffer.alloc(0), serverKey: Buffer.alloc(32, 18) }), /identity/);
+  await assert.rejects(verify({ payload: Buffer.from('attestation'), serverKey: Buffer.alloc(32, 17) }), /attestation/);
+  const client = new NativeGateway(); await assert.rejects(client.request('chat.stream', {}), /read_only/);
+  await assert.rejects(client.connect({}, null), /verifier/);
+});

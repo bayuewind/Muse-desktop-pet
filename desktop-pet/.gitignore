@@ -2,3 +2,6 @@ node_modules/
 dist/
 .smoke/
 *.log
+*.credentials.json
+.native-secrets*
+native/*.local.json

@@ -1,5 +1,7 @@
 # Muse 桌宠 · Mac 原型
 
+> **原生连接进展**：`native/` 已加入不依赖浏览器的 Node 协议实现及测试，详见 [原生连接说明](native/README.md)。尚待独立会话授权和真实联调，**当前运行的桌宠仍是下述浏览器版**。
+
 Electron 悬浮宠物 + 桌宠专用 Chrome 进程 + 本机常驻观察器。不是 Chrome 扩展，不读取你现有 Chrome 的 Cookie，不接入现有标签页。**依赖桌宠自己启动的 Chrome 进程，仍是 Web 运行时方案，不是独立实现的 Noise 客户端。**
 
 采用系统已安装的 `/Applications/Google Chrome.app`。本机测试中 Electron 内嵌登录页返回了 4xx，而专用 Chrome 已能完成跳转并返回 HTTP 200；未伪造 User-Agent、隐瞒自动化标记或放宽网页安全校验。
