@@ -1,0 +1,39 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.bayuewind.muse-desktop-pet",
+  "productName": "Muse 桌宠",
+  "executableName": "MuseDesktopPet",
+  "asar": true,
+  "asarUnpack": ["assets/*.ico"],
+  "npmRebuild": false,
+  "electronDist": "node_modules/electron/dist",
+  "directories": { "output": "dist", "buildResources": "build" },
+  "files": [
+    "*.cjs", "*.js", "*.html", "*.css", "package.json", "assets/*.png", "assets/*.ico",
+    "native/{account-pairing,accounts,activity-model,attachments,audio,auth,gateway-client,noise-xx,outgoing,peer-renewal,replies,source,status,subscription,vault,wire}.cjs"
+  ],
+  "win": {
+    "icon": "assets/muse.ico",
+    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "signExecutable": false,
+    "requestedExecutionLevel": "asInvoker"
+  },
+  "nsis": {
+    "include": "build/installer.nsh",
+    "installerIcon": "assets/muse.ico",
+    "uninstallerIcon": "assets/muse.ico",
+    "artifactName": "Muse-Desktop-Pet-${version}-win-${arch}-setup.${ext}",
+    "oneClick": false,
+    "perMachine": false,
+    "selectPerMachineByDefault": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Muse 桌宠",
+    "uninstallDisplayName": "Muse 桌宠",
+    "deleteAppDataOnUninstall": false,
+    "installerLanguages": ["zh_CN", "en_US"],
+    "language": "2052",
+    "runAfterFinish": true
+  }
+}

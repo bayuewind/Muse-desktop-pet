@@ -4,6 +4,10 @@
 
 基于 Electron 的桌面伴侣，支持 Windows / macOS。完成首次授权后，通过 Node 原生加密通道连接 Muse；日常查看状态、发送文字与接收回复不需要常驻浏览器。
 
+**Windows 下载：** [v0.1.1 安装包（x64）](https://github.com/bayuewind/Muse-desktop-pet/releases/download/v0.1.1/Muse-Desktop-Pet-0.1.1-win-x64-setup.exe) · [发布说明与校验文件](https://github.com/bayuewind/Muse-desktop-pet/releases/tag/v0.1.1)
+
+当前为未签名测试版，Windows 可能提示未知发布者；macOS DMG 暂未提供。
+
 ## 界面预览
 
 ### 桌面小人 · 随时查看状态
@@ -31,7 +35,9 @@
 
 ## 快速开始
 
-当前提供源码运行方式。需要：
+Windows 普通用户可从上方链接下载 EXE，退出正在运行的旧桌宠后安装，无需额外安装 Node.js。安装完成页可以独立勾选“启动 Muse 桌宠”和“创建桌面快捷方式”；程序、托盘与快捷方式使用同一小人头像。覆盖升级无需先登出账号。
+
+以下是开发者的源码运行方式，需要：
 
 - Node.js **22.12.0 或更高版本**，以及 npm。
 - 一个可用的 Muse 账号；当前原生验证实现支持 standard VM，暂不支持 CVM / SNP。
@@ -45,6 +51,22 @@ npm start
 ```
 
 Windows 也可以在下载代码后双击 [`desktop-pet/启动桌宠-Windows.cmd`](desktop-pet/启动桌宠-Windows.cmd)。首次运行会安装依赖，因此仍需先安装 Node.js。
+
+### 构建 Windows 安装包
+
+在 Windows x64 上，从 `desktop-pet` 目录执行：
+
+```sh
+npm ci
+npm run dist:win
+npm run verify:win
+```
+
+生成 `desktop-pet/dist/Muse-Desktop-Pet-0.1.1-win-x64-setup.exe` 与同名 `.sha256` 校验文件。EXE 自带 Electron / Node 运行环境，终端用户不需要另外安装 Node.js。安装向导支持选择目录、在完成页选择是否创建桌面快捷方式，并创建开始菜单入口。卸载默认保留本机授权；需要清除授权时应先在应用内登出。
+
+当前配置明确生成**未签名测试包**，Windows 下载或安装时可能提示未知发布者。正式公开发布前应配置可信代码签名；不要通过关闭系统防护来解决提示。构建命令不会自动上传 GitHub，也不包含自动更新功能。首次 Muse 授权仍需 Chrome / Edge。
+
+`verify:win` 检查安装包对应的 `app.asar` 文件清单，确认不含测试脚本、浏览器资料或本机凭据，并启动打包后的程序执行隔离冒烟测试（包括生产依赖加载、窗口交互和 Windows 加密往返）。它不会安装软件或改动你的现有登录。DMG 构建与 macOS 签名 / 公证尚未配置。
 
 ### 首次登录
 
@@ -98,7 +120,7 @@ npm run smoke:browser
 npm run smoke:browser -- --edge
 ```
 
-2026-09-29 在 Windows 上通过 **92 项自动测试**与 Electron 窗口冒烟测试；Chrome、Edge 专用可见窗口均已实测。自动登录检测的取消、并发和失败路径通过模拟测试，未为测试自动流程而登出已有账号。
+2026-09-29 在 Windows 上通过 **98 项自动测试**与打包后 Electron 窗口冒烟测试；Chrome、Edge 专用可见窗口均已实测。自动登录检测的取消、并发和失败路径通过模拟测试，未为测试自动流程而登出已有账号。
 
 请注意：
 

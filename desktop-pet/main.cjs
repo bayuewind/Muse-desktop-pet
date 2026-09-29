@@ -11,6 +11,7 @@ const { deriveState } = require('./state.cjs');
 
 const smoke = process.argv.includes('--smoke-test');
 app.setName('Muse 桌宠');
+if (process.platform === 'win32') app.setAppUserModelId('com.bayuewind.muse-desktop-pet');
 app.setPath('userData', path.join(app.getPath('appData'), smoke ? 'MuseDesktopPet-Smoke' : 'MuseDesktopPet'));
 const nativeMode = !smoke && !process.argv.includes('--browser');
 // No relaxed TLS, CSP or same-origin policy. Only scheduling/occlusion switches.
@@ -29,6 +30,10 @@ let nativeState = { kind: 'unknown', label: '原生连接中', detail: '不启�
 let lastDiagnostic = '';
 const petURL = pathToFileURL(path.join(__dirname, 'pet.html')).href;
 const composerURL = pathToFileURL(path.join(__dirname, 'composer.html')).href;
+const appIconPath = path.join(__dirname, 'assets', 'muse.png');
+const trayIconPath = app.isPackaged
+  ? path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'muse.ico')
+  : path.join(__dirname, 'assets', 'muse.ico');
 const COMPOSER_SHORTCUT = 'CommandOrControl+Shift+M';
 
 function isPet(event) {
@@ -105,7 +110,7 @@ function prepareComposer(window) {
 }
 async function createComposer() {
   composerWindow = new BrowserWindow({ width: 580, height: 730, minWidth: 440, minHeight: 540, title: 'Muse 会话', frame: false,
-    transparent: true, backgroundColor: '#00000000', resizable: true, show: false, alwaysOnTop: true,
+    transparent: true, backgroundColor: '#00000000', resizable: true, show: false, alwaysOnTop: true, icon: appIconPath,
     webPreferences: { preload: path.join(__dirname, 'composer-preload.cjs'), partition: 'muse-local-composer',
       nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true },
   });
@@ -251,10 +256,11 @@ async function poll() {
 }
 
 async function createWindows() {
+  if (nativeImage.createFromPath(appIconPath).isEmpty()) throw new Error('app_icon_missing');
   const { workArea } = screen.getPrimaryDisplay();
   petWindow = new BrowserWindow({
     width: 256, height: 306, x: workArea.x + workArea.width - 288, y: workArea.y + workArea.height - 344,
-    title: 'Muse 桌宠', frame: false, transparent: true, resizable: false,
+    title: 'Muse 桌宠', frame: false, transparent: true, resizable: false, icon: appIconPath,
     hasShadow: false, alwaysOnTop: true, skipTaskbar: true, show: false,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false,
       contextIsolation: true, sandbox: true, backgroundThrottling: false, webSecurity: true },
@@ -270,9 +276,12 @@ async function createWindows() {
   await petWindow.loadFile(path.join(__dirname, 'pet.html'));
   petWindow.showInactive();
 
-  const icon = nativeImage.createEmpty();
+  // Ship the real avatar instead of extracting an OS-cached generic EXE icon.
+  // ICO is unpacked so Windows can select a native small/high-DPI resource.
+  const icon = process.platform === 'win32' ? trayIconPath
+    : nativeImage.createFromPath(appIconPath).resize({ width: 20, height: 20 });
+  if (process.platform === 'win32' && nativeImage.createFromPath(trayIconPath).isEmpty()) throw new Error('tray_icon_missing');
   tray = new Tray(icon);
-  tray.setTitle('◉');
   updateMenus();
   tray.on('double-click', showPet);
   if (!smoke) shortcutAvailable = globalShortcut.register(COMPOSER_SHORTCUT, () => {
@@ -349,6 +358,20 @@ async function createWindows() {
 
 async function runSmoke() {
   try {
+    // Also exercise production imports inside app.asar. Renderer-only smoke
+    // would miss missing native-client modules and dynamic Puppeteer imports.
+    const { Accounts } = require('./native/accounts.cjs');
+    const { AccountPairing } = require('./native/account-pairing.cjs');
+    const { NativeSource } = require('./native/source.cjs');
+    const { CredentialVault } = require('./native/vault.cjs');
+    const { default: browserDriver } = await import('puppeteer-core');
+    if ([Accounts, AccountPairing, NativeSource, CredentialVault, browserDriver.connect].some(value => typeof value !== 'function')) throw new Error('missing_packaged_dependencies');
+    if (process.platform === 'win32') {
+      const fixture = 'Muse smoke: synthetic local encryption fixture';
+      const encrypted = safeStorage.encryptString(fixture);
+      try { if (safeStorage.decryptString(encrypted) !== fixture) throw new Error('os_encryption_roundtrip_failed'); }
+      finally { encrypted.fill(0); }
+    }
     const statuses = [
       { sourceReady: false },
       { sourceReady: true, connected: true, pingOk: true, pingAt: Date.now(), hasEvent: true, code: 'working' },
