@@ -1,13 +1,13 @@
 'use strict';
-// Experimental browser-free CLI. No credential files are discovered/read, and
-// no browser is launched. A future explicitly approved pairing flow supplies
-// a short-lived credential envelope via stdin; stdout contains status only.
+// Optional stdin-only developer CLI. The desktop native source separately uses
+// the OS-encrypted vault and automatic HTTPS renewal. This CLI never discovers
+// credentials or launches a browser; stdout contains status only.
 const { NativeGateway, pinnedStandardVerifier } = require('./gateway-client.cjs');
 const { NativeActivityModel } = require('./activity-model.cjs');
 async function main() {
   if (!process.argv.includes('--credentials-stdin')) {
     console.log(JSON.stringify({ state: 'authorization_required', browserRequiredForRuntime: false,
-      detail: 'Native protocol implemented; real-account pairing and subscription coverage not verified.' }));
+      detail: 'This developer CLI requires an explicit stdin envelope. Use npm run native for the OS-encrypted desktop session.' }));
     process.exitCode = 2; return;
   }
   let buffer = '';

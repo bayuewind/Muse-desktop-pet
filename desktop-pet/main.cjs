@@ -1,18 +1,18 @@
 'use strict';
-const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, screen, powerMonitor } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, screen, powerMonitor, safeStorage } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
-const { observerScript } = require('./observer.cjs');
-let observerFactory = observerScript;
-const observerFile = require.resolve('./observer.cjs');
-let observerMtime = fs.statSync(observerFile).mtimeMs;
+let observerFactory = null;
+const observerFile = path.join(__dirname, 'observer.cjs');
+let observerMtime = 0;
 const { deriveState } = require('./state.cjs');
-const { ChromeEngine } = require('./chrome-engine.cjs');
 
 const smoke = process.argv.includes('--smoke-test');
 app.setName('Muse 桌宠');
 app.setPath('userData', path.join(app.getPath('appData'), smoke ? 'MuseDesktopPet-Smoke' : 'MuseDesktopPet'));
+const nativeMode = !smoke && !process.argv.includes('--browser') &&
+  (process.argv.includes('--native') || fs.existsSync(path.join(app.getPath('userData'), 'native-session.enc')));
 // No relaxed TLS, CSP or same-origin policy. Only scheduling/occlusion switches.
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
@@ -20,6 +20,7 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 let petWindow, engine, tray, timer, quitting = false, polling = false, suspended = false;
 let resetNeeded = false, lifecycle = 0, sample = null, receivedAt = 0;
 let currentState = deriveState({ sourceReady: false });
+let nativeState = { kind: 'unknown', label: '原生连接中', detail: '不启动浏览器 · 正在恢复本机会话', variant: 'static', mode: 'native' };
 let lastDiagnostic = '';
 const petURL = pathToFileURL(path.join(__dirname, 'pet.html')).href;
 
@@ -27,23 +28,28 @@ function isPet(event) {
   return petWindow && event.sender === petWindow.webContents && event.senderFrame?.url === petURL;
 }
 function publish() {
-  currentState = suspended
+  if (quitting) return;
+  currentState = nativeMode ? nativeState : suspended
     ? deriveState({ suspended: true }, Date.now(), Date.now())
     : deriveState(sample, Date.now(), receivedAt);
   if (petWindow && !petWindow.isDestroyed()) petWindow.webContents.send('pet:state', currentState);
-  tray?.setToolTip(`Muse 桌宠 · ${currentState.label}`);
+  if (tray && !tray.isDestroyed()) tray.setToolTip(`Muse 桌宠 · ${currentState.label}`);
 }
 function invalidate() {
   lifecycle++; sample = null; receivedAt = 0; resetNeeded = true; publish();
 }
 function showMuse() {
+  if (quitting) return;
+  if (nativeMode) { void engine?.reload().catch(() => {}); return; }
   void engine?.show().catch(() => { sample = { error: true }; receivedAt = Date.now(); publish(); });
 }
 function showPet() {
+  if (quitting) return;
   if (!petWindow || petWindow.isDestroyed()) return;
   petWindow.show(); petWindow.focus();
 }
 async function poll() {
+  if (nativeMode) return;
   publish();
   if (suspended || polling || !engine?.page || engine.page.isClosed()) return;
   if (engine.loading) return;
@@ -112,15 +118,23 @@ async function createWindows() {
   tray.setTitle('◉');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '显示桌宠', click: showPet },
-    { label: '打开 Muse / 登录', click: showMuse },
+    { label: nativeMode ? '原生重连（不打开浏览器）' : '打开 Muse / 登录', click: showMuse },
     { label: '隐藏桌宠', click: () => petWindow.hide() },
     { type: 'separator' },
-    { label: '重新连接（刷新独立页面）', click: () => { invalidate(); void engine?.reload().catch(() => invalidate()); } },
+    { label: nativeMode ? '重新连接云端' : '重新连接（刷新独立页面）', click: () => { invalidate(); void engine?.reload().catch(() => invalidate()); } },
     { label: '退出桌宠', click: () => app.quit() },
   ]));
   tray.on('double-click', showPet);
 
   if (smoke) return runSmoke();
+  if (nativeMode) {
+    const { CredentialVault } = require('./native/vault.cjs');
+    const { NativeSource } = require('./native/source.cjs');
+    engine = new NativeSource(new CredentialVault(app.getPath('userData'), safeStorage));
+    engine.on('state', state => { nativeState = state; publish(); });
+    await engine.start(); return;
+  }
+  const { ChromeEngine } = require('./chrome-engine.cjs');
   engine = new ChromeEngine(path.join(app.getPath('userData'), 'ChromeLogin'), invalidate);
   // A real installed Chrome, not a spoofed user-agent or a connection to existing tabs.
   void engine.start().then(() => poll()).catch(() => {
@@ -163,13 +177,13 @@ else {
   app.on('second-instance', () => { showPet(); showMuse(); });
   app.whenReady().then(() => {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: 'Muse 桌宠', submenu: [{ label: '打开 Muse / 登录', click: showMuse },
+      { label: 'Muse 桌宠', submenu: [{ label: nativeMode ? '原生重连' : '打开 Muse / 登录', click: showMuse },
         { label: '显示桌宠', click: showPet }, { type: 'separator' }, { role: 'quit', label: '退出桌宠' }] },
       { role: 'editMenu', label: '编辑' },
       { label: '窗口', submenu: [{ role: 'minimize' }, { role: 'zoom' }] },
     ]));
-    powerMonitor.on('suspend', () => { suspended = true; invalidate(); });
-    powerMonitor.on('resume', () => { suspended = false; invalidate(); void poll(); });
+    powerMonitor.on('suspend', () => { suspended = true; if (nativeMode) void engine?.pause(); else invalidate(); });
+    powerMonitor.on('resume', () => { suspended = false; if (nativeMode) void engine?.reload(); else { invalidate(); void poll(); } });
     return createWindows();
   }).catch(() => { console.error('START_FAILED: 请检查本机运行环境'); app.exit(1); });
   app.on('activate', showMuse);
@@ -177,6 +191,6 @@ else {
   app.on('before-quit', event => {
     if (quitting) return;
     quitting = true; clearInterval(timer); tray?.destroy();
-    if (engine) { event.preventDefault(); void engine.stop().finally(() => app.quit()); }
+    if (engine) { event.preventDefault(); void engine.stop().then(() => app.exit(0), () => app.exit(1)); }
   });
 }

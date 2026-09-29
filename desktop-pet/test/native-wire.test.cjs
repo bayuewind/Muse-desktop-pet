@@ -5,7 +5,7 @@ const { randomBytes } = require('node:crypto');
 const { CipherState } = require('../native/noise-xx.cjs');
 const { encode, decode, chunks, ChunkAssembler, NoiseWire } = require('../native/wire.cjs');
 const { SubscriptionDecoder } = require('../native/subscription.cjs');
-const { gatewayURL, pinnedStandardVerifier, NativeGateway } = require('../native/gateway-client.cjs');
+const { gatewayURL, pinnedStandardVerifier, NativeGateway, verifyStandardBinding } = require('../native/gateway-client.cjs');
 test('framing reassembles out-of-order chunks and poisons duplicate packets', () => {
   const data = randomBytes(200000), frames = chunks(data), assembler = new ChunkAssembler();
   let result; for (const frame of [...frames].reverse()) result = assembler.accept(frame) ?? result;
@@ -13,6 +13,16 @@ test('framing reassembles out-of-order chunks and poisons duplicate packets', ()
   const bad = new ChunkAssembler(); bad.accept(frames[0]);
   assert.throws(() => bad.accept(frames[0]), /invalid/);
   assert.throws(() => bad.accept(frames[1]), /dead/);
+});
+test('standard VM evidence binds the peer key and this handshake nonce; other variants fail', () => {
+  const key = Buffer.alloc(32, 12), nonce = Buffer.alloc(32, 21);
+  const payload = Buffer.concat([Buffer.from([18, 68, 10, 32]), key, Buffer.from([18, 32]), nonce]);
+  assert.equal(verifyStandardBinding(payload, key, nonce), true);
+  assert.throws(() => verifyStandardBinding(payload, key, Buffer.alloc(32, 22)), /attestation/);
+  assert.throws(() => verifyStandardBinding(payload, Buffer.alloc(32, 13), nonce), /attestation/);
+  const wrongVariant = Buffer.from(payload); wrongVariant[0] = 10;
+  assert.throws(() => verifyStandardBinding(wrongVariant, key, nonce), /attestation/);
+  assert.throws(() => verifyStandardBinding(Buffer.concat([payload, Buffer.from([0])]), key, nonce), /attestation/);
 });
 test('plaintext protobuf request and encrypted server reply are interoperable', () => {
   const tx = randomBytes(32), rx = randomBytes(32);
@@ -38,6 +48,15 @@ test('subscription parses byte-split UTF-8 and emits ONLY status events', () => 
   assert.throws(() => decoder.push(Buffer.from('not json\n')), /protocol/);
   assert.throws(() => decoder.push(Buffer.alloc(0)), /dead/);
 });
+test('subscription accepts protobuf empty-body defaults and a complete ACK without newline', () => {
+  const acks = [], events = [];
+  const decoder = new SubscriptionDecoder({ onAck: ack => acks.push(ack), onEvent: (...event) => events.push(event) });
+  decoder.push([]);
+  decoder.push(Buffer.from('{"ok":true,"result":{"agent_id":"test"}}'));
+  assert.equal(acks.length, 1);
+  decoder.push(Buffer.from('\n{"type":"event","event":"agent.status","payload":{"activity_code":"working"}}\n'));
+  assert.equal(events.length, 1);
+});
 test('gateway is allowlisted; peer policy is mandatory; state client cannot send messages', async () => {
   assert.equal(gatewayURL({ vmId: 'test-vm', authToken: 'test-only' }).host, 'hatch.metaaivm.com');
   assert.throws(() => gatewayURL({ vmId: 'a&auth_token=other', authToken: 'test' }), /invalid/);
@@ -48,4 +67,15 @@ test('gateway is allowlisted; peer policy is mandatory; state client cannot send
   await assert.rejects(verify({ payload: Buffer.from('attestation'), serverKey: Buffer.alloc(32, 17) }), /attestation/);
   const client = new NativeGateway(); await assert.rejects(client.request('chat.stream', {}), /read_only/);
   await assert.rejects(client.connect({}, null), /verifier/);
+});
+test('an admitted idle subscription resolves without inventing an event or timing out', async () => {
+  const client = new NativeGateway(); client.ready = true;
+  client.wire = { request: () => ({ streamId: 1, frames: [] }), destroy() {} };
+  client.socket = { terminate() {} };
+  let events = 0; client.on('status-event', () => events++);
+  const subscribed = client.request('tasks.subscribe');
+  client.dispatch({ streamId: 1, kind: 'response', value: { status: 200, body: [], endBody: false } });
+  assert.deepEqual(await subscribed, { accepted: true, awaitingInitialRecord: true });
+  assert.equal(events, 0); assert.equal(client.pending.has(1), true);
+  client.close();
 });

@@ -15,6 +15,8 @@ function render(state) {
   document.querySelector('#status').textContent = state.label;
   document.querySelector('#detail').textContent = state.detail;
   document.querySelector('#status').title = state.scope;
+  document.querySelector('.eyebrow span').textContent = state.mode === 'native' ? '· 原生' : '· 本机';
+  document.querySelector('#open').textContent = state.mode === 'native' ? '重新连接 ↻' : '打开 Muse ↗';
   const src = motion.matches ? null : sources[state.variant] ?? null;
   if (src !== currentSrc) {
     currentSrc = src; video.classList.remove('ready'); video.pause();
