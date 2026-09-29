@@ -10,7 +10,8 @@ header small { display: flex; align-items: center; gap: 4px; color: #849184; fon
 body[data-connected=true] #connection-dot { background: #6b9567; }
 button { cursor: pointer; font: inherit; -webkit-app-region: no-drag; }
 button:disabled { cursor: default; opacity: .45; }
-#close { margin-left: auto; align-self: flex-start; border: 0; background: transparent; color: #839080; font-size: 22px; padding: 0 4px; }
+#account { margin-left: auto; border: 1px solid #dfe5da; background: #f0f4eb; color: #64805a; border-radius: 9px; padding: 5px 9px; font-size: 12px; }
+#close { align-self: flex-start; border: 0; background: transparent; color: #839080; font-size: 22px; padding: 0 4px; }
 textarea { display: block; width: 100%; height: 104px; min-height: 75px; flex-shrink: 0; resize: none; padding: 12px 14px; border-radius: 15px; border: 1px solid #dfe5da; background: #fff; font: inherit; font-size: 13px; line-height: 1.6; color: #28342b; outline: none; }
 textarea::placeholder { color: #a4afa2; }
 textarea:focus { border-color: #8ba582; box-shadow: 0 0 0 3px #8ba58215; }

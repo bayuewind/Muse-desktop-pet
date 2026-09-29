@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('composer', Object.freeze({
   state: () => ipcRenderer.invoke('composer:state'),
   send: draft => ipcRenderer.invoke('composer:send', draft),
   hide: () => ipcRenderer.send('composer:hide'),
+  accountMenu: () => ipcRenderer.send('composer:account-menu'),
   microphone: () => ipcRenderer.invoke('composer:microphone'),
   transcribe: audio => ipcRenderer.invoke('composer:transcribe', audio),
   replies: () => ipcRenderer.invoke('composer:replies'),

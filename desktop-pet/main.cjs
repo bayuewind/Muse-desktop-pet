@@ -12,14 +12,15 @@ const { deriveState } = require('./state.cjs');
 const smoke = process.argv.includes('--smoke-test');
 app.setName('Muse 桌宠');
 app.setPath('userData', path.join(app.getPath('appData'), smoke ? 'MuseDesktopPet-Smoke' : 'MuseDesktopPet'));
-const nativeMode = !smoke && !process.argv.includes('--browser') &&
-  (process.argv.includes('--native') || fs.existsSync(path.join(app.getPath('userData'), 'native-session.enc')));
+const nativeMode = !smoke && !process.argv.includes('--browser');
 // No relaxed TLS, CSP or same-origin policy. Only scheduling/occlusion switches.
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
 let petWindow, engine, tray, timer, quitting = false, polling = false, suspended = false;
 let composerWindow, shortcutAvailable = false, microphoneAllowedUntil = 0, voiceLease = null;
+let accounts, accountAction = false;
+let petOrbit = null;
 let resetNeeded = false, lifecycle = 0, sample = null, receivedAt = 0;
 let currentState = deriveState({ sourceReady: false });
 let nativeState = { kind: 'unknown', label: '原生连接中', detail: '不启动浏览器 · 正在恢复本机会话', variant: 'static', mode: 'native' };
@@ -40,8 +41,22 @@ function cancelVoice() {
   if (composerWindow && !composerWindow.isDestroyed()) composerWindow.webContents.send('composer:hidden');
 }
 function hideComposer() { cancelVoice(); composerWindow?.hide(); }
+function setPetOrbit(expanded) {
+  if (!petWindow || petWindow.isDestroyed()) return false;
+  const bounds = petWindow.getBounds(), area = screen.getDisplayMatching(bounds).workArea;
+  const layout = require('./pet-layout.cjs');
+  if (expanded && !petOrbit) {
+    const opened = layout.expand(bounds, area); petOrbit = { original:bounds, opened };
+    petWindow.setBounds(opened);
+  } else if (!expanded && petOrbit) {
+    petWindow.setBounds(layout.collapse(bounds, petOrbit.original, petOrbit.opened, area)); petOrbit = null;
+  }
+  petWindow.webContents.send('pet:orbit', Boolean(petOrbit));
+  return Boolean(petOrbit);
+}
 async function showComposer() {
   if (quitting) return;
+  setPetOrbit(false);
   if (!composerWindow || composerWindow.isDestroyed()) await createComposer();
   if (composerWindow.isMinimized()) composerWindow.restore();
   const anchor = petWindow?.getBounds() ?? { x: 300, y: 300, width: 256, height: 306 };
@@ -93,13 +108,69 @@ function invalidate() {
 }
 function showMuse() {
   if (quitting) return;
-  if (nativeMode) { void engine?.reload().catch(() => {}); return; }
+  if (nativeMode) {
+    if (accounts?.phase === 'signed_out') void runAccountAction('login');
+    else if (accounts?.phase === 'connected') void engine?.reload().catch(() => {});
+    return;
+  }
   void engine?.show().catch(() => { sample = { error: true }; receivedAt = Date.now(); publish(); });
 }
 function showPet() {
   if (quitting) return;
   if (!petWindow || petWindow.isDestroyed()) return;
   petWindow.show(); petWindow.focus();
+}
+function accountItems() {
+  const phase = accounts?.phase, ready = nativeMode && !accountAction;
+  return [
+    { label: '登录 Muse…', enabled: ready && phase === 'signed_out', click: () => void runAccountAction('login') },
+    { label: '登录完成，连接此账号', enabled: ready && phase === 'awaiting_login', click: () => void runAccountAction('complete') },
+    { label: '取消登录', enabled: ready && phase === 'awaiting_login', click: () => void runAccountAction('cancel') },
+    { type: 'separator' },
+    { label: '切换账号…', enabled: ready && phase === 'connected', click: () => void runAccountAction('switch') },
+    { label: phase === 'cleanup_failed' ? '重试清除本机授权…' : '登出当前账号…', enabled: ready && ['connected','cleanup_failed'].includes(phase), click: () => void runAccountAction('logout') },
+  ];
+}
+function updateMenus() {
+  if (quitting) return;
+  const common = [
+    { label: '下达任务（文字 / 语音）', accelerator: COMPOSER_SHORTCUT, click: () => void showComposer() },
+    { label: '账号', submenu: accountItems() },
+    { label: '显示桌宠', click: showPet },
+    { label: nativeMode ? '原生重连 / 登录' : '打开 Muse / 登录', enabled: !nativeMode || accounts?.phase === 'connected' || accounts?.phase === 'signed_out', click: showMuse },
+    { label: '隐藏桌宠', click: () => petWindow?.hide() },
+    { type: 'separator' },
+    { label: '退出桌宠', click: () => app.quit() },
+  ];
+  tray?.setContextMenu(Menu.buildFromTemplate(common));
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: 'Muse 桌宠', submenu: common }, { role: 'editMenu', label: '编辑' },
+    { label: '窗口', submenu: [{ role: 'minimize' }, { role: 'zoom' }] },
+  ]));
+}
+async function runAccountAction(action) {
+  if (!nativeMode || !accounts || quitting || accountAction) return;
+  accountAction = true; updateMenus();
+  try {
+    if (['logout','switch','cancel'].includes(action)) {
+      const result = await dialog.showMessageBox({ type: 'warning', title: action === 'switch' ? '切换 Muse 账号' : '退出本机 Muse 登录',
+        message: action === 'switch' ? '登出当前账号并登录另一个账号？' : '清除这台桌宠的登录状态？',
+        detail: '将停止本机连接和录音，清除本机授权、专用登录浏览器资料、会话缓存及未发送草稿。已保存的附件不删除；不会删除云端聊天、停止云端循环任务或登出日常 Chrome。此操作不是服务端会话撤销。',
+        buttons: ['取消', action === 'switch' ? '登出并切换' : '确认退出'], defaultId: 0, cancelId: 0 });
+      if (result.response !== 1 || quitting) return;
+      await accounts.logout();
+    }
+    if (['login','switch'].includes(action)) {
+      const result = await dialog.showMessageBox({ type: 'info', title: '登录 Muse', message: '使用新的专用窗口登录 Muse',
+        detail: '不会读取日常 Chrome 或复用旧账号。请在新窗口完成登录，再从桌宠菜单「账号 → 登录完成，连接此账号」确认。仅导入该窗口的 Muse 会话并加密保存在本机；验证成功后关闭登录窗口，日常运行仍不依赖浏览器。',
+        buttons: ['取消', '打开专用登录窗口'], defaultId: 1, cancelId: 0 });
+      if (result.response === 1 && !quitting) await accounts.login();
+    }
+    if (action === 'complete') await accounts.complete();
+  } catch {
+    if (!quitting) await dialog.showMessageBox({ type: 'error', title: '账号操作未完成', message: accounts.phase === 'cleanup_failed' ? '本机授权或专用登录资料未能完全清除。' : '尚未完成登录或原生身份验证。',
+      detail: accounts.phase === 'cleanup_failed' ? '连接已停止；请从账号菜单重试清除，不会自动恢复连接。' : '请确认专用窗口已登录并进入 Muse 聊天，再点击「登录完成，连接此账号」。不支持的 VM 身份验证不会被跳过；也可取消后重试。' });
+  } finally { accountAction = false; updateMenus(); }
 }
 async function poll() {
   if (nativeMode) return;
@@ -169,15 +240,7 @@ async function createWindows() {
   const icon = nativeImage.createEmpty();
   tray = new Tray(icon);
   tray.setTitle('◉');
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '下达任务（文字 / 语音）', accelerator: COMPOSER_SHORTCUT, click: () => { void showComposer(); } },
-    { label: '显示桌宠', click: showPet },
-    { label: nativeMode ? '原生重连（不打开浏览器）' : '打开 Muse / 登录', click: showMuse },
-    { label: '隐藏桌宠', click: () => petWindow.hide() },
-    { type: 'separator' },
-    { label: nativeMode ? '重新连接云端' : '重新连接（刷新独立页面）', click: () => { invalidate(); void engine?.reload().catch(() => invalidate()); } },
-    { label: '退出桌宠', click: () => app.quit() },
-  ]));
+  updateMenus();
   tray.on('double-click', showPet);
   if (!smoke) shortcutAvailable = globalShortcut.register(COMPOSER_SHORTCUT, () => {
     if (composerWindow?.isVisible() && composerWindow.isFocused()) hideComposer(); else void showComposer();
@@ -187,14 +250,45 @@ async function createWindows() {
   if (nativeMode) {
     const { CredentialVault } = require('./native/vault.cjs');
     const { NativeSource } = require('./native/source.cjs');
-    engine = new NativeSource(new CredentialVault(app.getPath('userData'), safeStorage));
-    engine.on('state', state => { nativeState = state; publish(); });
-    engine.on('replies', replies => {
-      if (quitting) return;
-      if (petWindow && !petWindow.isDestroyed()) petWindow.webContents.send('pet:unread', replies.unread);
-      if (composerWindow && !composerWindow.isDestroyed()) composerWindow.webContents.send('composer:replies', replies);
+    const { Accounts } = require('./native/accounts.cjs');
+    const directory = app.getPath('userData'), vault = new CredentialVault(directory, safeStorage);
+    accounts = new Accounts({ vault, makePairing: () => new (require('./native/account-pairing.cjs').AccountPairing)(directory),
+      makeSource: () => {
+        const source = new NativeSource(vault);
+        source.on('state', state => { if (accounts.source === source) { nativeState = state; publish(); } });
+        source.on('replies', replies => {
+          if (quitting || accounts.source !== source) return;
+          if (petWindow && !petWindow.isDestroyed()) petWindow.webContents.send('pet:unread', replies.unread);
+          if (composerWindow && !composerWindow.isDestroyed()) composerWindow.webContents.send('composer:replies', replies);
+        });
+        return source;
+      },
+      resetViews: () => {
+        cancelVoice();
+        if (composerWindow && !composerWindow.isDestroyed()) composerWindow.destroy();
+        composerWindow = null;
+        petWindow?.webContents.send('pet:unread', 0);
+      },
+      clearLegacy: async () => {
+        const profile = path.join(directory, 'ChromeLogin');
+        if (fs.existsSync(profile)) {
+          if (!fs.lstatSync(profile).isDirectory() || fs.lstatSync(profile).isSymbolicLink()) throw new Error('unsafe_login_profile');
+          await fs.promises.rm(profile, { recursive: true, force: true });
+        }
+      },
+      changed: account => {
+        engine = account.source;
+        if (account.phase !== 'connected') {
+          const labels = { signed_out: '尚未登录 Muse', clearing: '正在清除本机登录', cleanup_failed: '本机登出未完成',
+            opening_login: '正在打开登录窗口', awaiting_login: '请完成 Muse 登录', verifying_login: '正在验证新账号' };
+          nativeState = { kind: 'login', label: labels[account.phase] ?? '尚未登录 Muse', detail: account.phase === 'signed_out' ? '点「登录 Muse」或从账号菜单登录' : '菜单「账号」管理登录 · 云端任务不受影响',
+            variant: 'static', mode: 'native', accountPhase: account.phase };
+          publish();
+        }
+        updateMenus();
+      },
     });
-    await engine.start(); return;
+    await accounts.restore(); return;
   }
   const { ChromeEngine } = require('./chrome-engine.cjs');
   engine = new ChromeEngine(path.join(app.getPath('userData'), 'ChromeLogin'), invalidate);
@@ -222,6 +316,15 @@ async function runSmoke() {
     // Report flags, not session data, and do not launch a remote login in smoke mode.
     const preferences = petWindow.webContents.getLastWebPreferences();
     if (!preferences.sandbox || !preferences.contextIsolation || preferences.nodeIntegration) throw new Error('unsafe_preferences');
+    await petWindow.webContents.executeJavaScript('window.pet.setOrbit(true)');
+    const orbitChecks = await petWindow.webContents.executeJavaScript(`({
+      expanded:document.body.dataset.orbit==='true',
+      four:document.querySelectorAll('#orbit .bubble').length===4,
+      empty:document.querySelectorAll('#orbit .empty-bubble:disabled').length===3,
+      account:!!document.querySelector('#orbit-account'),
+    })`);
+    if (!Object.values(orbitChecks).every(Boolean)) throw new Error('orbit_not_rendered');
+    await petWindow.webContents.executeJavaScript('window.pet.setOrbit(false)');
     await createComposer();
     const composerChecks = await composerWindow.webContents.executeJavaScript(`(async () => {
       const draft=document.querySelector('#draft');
@@ -253,12 +356,19 @@ async function runSmoke() {
 
 ipcMain.handle('pet:get-state', event => isPet(event) ? currentState : null);
 ipcMain.on('pet:open-muse', event => { if (isPet(event)) showMuse(); });
-ipcMain.on('pet:hide', event => { if (isPet(event)) petWindow.hide(); });
+ipcMain.on('pet:hide', event => { if (isPet(event)) { setPetOrbit(false); petWindow.hide(); } });
 ipcMain.on('pet:compose', event => { if (isPet(event)) void showComposer(); });
+ipcMain.handle('pet:orbit', (event, expanded) => isPet(event) && typeof expanded === 'boolean' ? setPetOrbit(expanded) : false);
+ipcMain.on('pet:account-menu', event => {
+  if (isPet(event) && petWindow.isVisible() && petOrbit) Menu.buildFromTemplate(accountItems()).popup({ window: petWindow });
+});
+ipcMain.on('composer:account-menu', event => {
+  if (isComposer(event) && composerWindow.isVisible()) Menu.buildFromTemplate(accountItems()).popup({ window: composerWindow });
+});
 ipcMain.handle('composer:state', event => isComposer(event) ? composerState() : null);
 ipcMain.on('composer:hide', event => { if (isComposer(event)) hideComposer(); });
 ipcMain.handle('composer:replies', event => isComposer(event) ? engine?.replies?.snapshot() ?? { messages: [], unread: 0 } : null);
-ipcMain.handle('composer:refresh-replies', async event => isComposer(event) && nativeMode && !smoke ? engine.refreshReplies() : { ok: false });
+ipcMain.handle('composer:refresh-replies', async event => isComposer(event) && nativeMode && !smoke && engine ? engine.refreshReplies() : { ok: false });
 ipcMain.on('composer:read-replies', event => { if (isComposer(event) && composerWindow.isVisible() && composerWindow.isFocused()) engine?.replies?.read(); });
 function validAssetRequest(event, request) {
   return isComposer(event) && composerWindow.isVisible() && nativeMode && !smoke &&
@@ -283,11 +393,13 @@ ipcMain.handle('composer:attachment', async (event, request) => {
 });
 ipcMain.handle('composer:save-attachment', async (event, request) => {
   if (!validAssetRequest(event, request) || !composerWindow.isFocused()) return { ok: false, reason: 'unavailable' };
+  const source = engine;
   try {
-    const value = await engine.attachment(request.messageId, request.assetId);
+    const value = await source.attachment(request.messageId, request.assetId);
+    if (engine !== source || !validAssetRequest(event, request)) return { ok: false, reason: 'cancelled' };
     const result = await dialog.showSaveDialog(composerWindow, { title: '保存 Muse 附件（不会执行）',
       defaultPath: path.join(app.getPath('downloads'), path.basename(value.name)), buttonLabel: '保存' });
-    if (result.canceled || !result.filePath) return { ok: false, reason: 'cancelled' };
+    if (result.canceled || !result.filePath || engine !== source || !validAssetRequest(event, request)) return { ok: false, reason: 'cancelled' };
     await fs.promises.writeFile(result.filePath, value.bytes, { flag: 'wx', mode: 0o600 });
     return { ok: true };
   } catch (error) { return { ok: false, reason: error.code === 'EEXIST' ? 'already_exists' : 'save_failed' }; }
@@ -327,13 +439,6 @@ else {
   process.on('SIGINT', () => app.quit());
   app.on('second-instance', () => { showPet(); void showComposer(); });
   app.whenReady().then(() => {
-    Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: 'Muse 桌宠', submenu: [{ label: nativeMode ? '原生重连' : '打开 Muse / 登录', click: showMuse },
-        { label: '下达任务（文字 / 语音）', accelerator: COMPOSER_SHORTCUT, click: () => { void showComposer(); } },
-        { label: '显示桌宠', click: showPet }, { type: 'separator' }, { role: 'quit', label: '退出桌宠' }] },
-      { role: 'editMenu', label: '编辑' },
-      { label: '窗口', submenu: [{ role: 'minimize' }, { role: 'zoom' }] },
-    ]));
     powerMonitor.on('suspend', () => { suspended = true; cancelVoice(); if (nativeMode) void engine?.pause(); else invalidate(); });
     powerMonitor.on('resume', () => { suspended = false; if (nativeMode) void engine?.reload(); else { invalidate(); void poll(); } });
     return createWindows();
@@ -343,6 +448,6 @@ else {
   app.on('before-quit', event => {
     if (quitting) return;
     quitting = true; clearInterval(timer); cancelVoice(); globalShortcut.unregisterAll(); tray?.destroy();
-    if (engine) { event.preventDefault(); void engine.stop().then(() => app.exit(0), () => app.exit(1)); }
+    if (accounts || engine) { event.preventDefault(); void (accounts ? accounts.stop() : engine.stop()).then(() => app.exit(0), () => app.exit(1)); }
   });
 }

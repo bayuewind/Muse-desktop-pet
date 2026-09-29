@@ -1,6 +1,19 @@
 :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; color: #383c39; }
 * { box-sizing: border-box; }
 html, body { margin: 0; width: 256px; height: 306px; overflow: hidden; background: transparent; user-select: none; }
+html:has(body[data-orbit=true]), body[data-orbit=true] { width: 432px; height: 426px; }
+body[data-orbit=true] .pet { position: absolute; width: 256px; left: 88px; top: 112px; }
+.orbit { position: absolute; inset: 0; pointer-events: none; }
+.orbit[hidden] { display: none; }
+.bubble { position: absolute; width: 64px; height: 64px; border-radius: 50%; border: 1px solid #ffffffed; background: #fffef9f5; box-shadow: 0 5px 20px #1c2b2220, inset 0 0 0 3px #ffffff60; color: #61765e; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 3px; font: 11px -apple-system, 'PingFang SC', sans-serif; pointer-events: auto; -webkit-app-region: no-drag; animation: bubble-in .18s ease-out both; }
+.account-bubble { left: 40px; top: 90px; cursor: pointer; }
+.account-bubble:hover { background: #f0f6e9; border-color: #bacbad; }
+.account-bubble svg { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.empty-bubble { border: 1px dashed #bdc9b7; background: #fffef9c9; box-shadow: 0 5px 18px #1c2b2214; cursor: default; }
+.slot-one { left: 328px; top: 90px; animation-delay: .025s; }
+.slot-two { left: 14px; top: 248px; animation-delay: .05s; }
+.slot-three { left: 354px; top: 248px; animation-delay: .075s; }
+@keyframes bubble-in { from { opacity: 0; transform: scale(.8) translateY(5px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 .pet { position: relative; padding: 10px 18px 12px; text-align: center; }
 .handle { height: 19px; width: 142px; margin: 0 auto; -webkit-app-region: drag; display: grid; place-items: center; cursor: grab; }
 .handle span { width: 28px; height: 4px; border-radius: 5px; background: #79877b80; }

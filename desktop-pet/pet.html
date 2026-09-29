@@ -11,7 +11,7 @@
   <main class="pet">
     <div class="handle" title="拖动这里移动桌宠"><span></span></div>
     <button class="hide" id="hide" aria-label="隐藏桌宠">×</button>
-    <button class="portrait" id="portrait" aria-label="给 Muse 下达任务" title="点击输入文字或语音 · ⌘⇧M">
+    <button class="portrait" id="portrait" aria-label="展开气泡菜单" aria-expanded="false" title="点击展开气泡 · ⌘⇧M 打开会话">
       <div class="fallback" aria-hidden="true"><div class="face"><i></i><b>⌣</b><i></i></div></div>
       <img id="still" src="https://muse.ai/avatars/hatch.jpg" alt="Muse 桌宠">
       <video id="avatar" muted autoplay loop playsinline aria-hidden="true"></video>
@@ -25,6 +25,15 @@
       <button id="open">打开 Muse <span>↗</span></button>
     </section>
   </main>
+  <nav id="orbit" class="orbit" aria-label="桌宠气泡菜单" hidden>
+    <button class="bubble account-bubble" id="orbit-account" title="登录、切换账号或登出" aria-label="账号：登录、切换或登出">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20v-2a7 7 0 0 1 14 0v2"/></svg>
+      <span>账号</span>
+    </button>
+    <button class="bubble empty-bubble slot-one" disabled aria-label="预留空位一" title="预留空位"></button>
+    <button class="bubble empty-bubble slot-two" disabled aria-label="预留空位二" title="预留空位"></button>
+    <button class="bubble empty-bubble slot-three" disabled aria-label="预留空位三" title="预留空位"></button>
+  </nav>
   <script src="pet.js"></script>
 </body>
 </html>

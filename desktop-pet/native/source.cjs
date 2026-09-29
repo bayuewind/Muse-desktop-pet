@@ -185,6 +185,13 @@ class NativeSource extends EventEmitter {
     this.voiceClient?.close('dictation_cancelled'); this.voiceClient = null; this.voiceInProgress = false;
   }
   async pause() { await this.stop(); this.state.reset('suspended'); this.publish(); }
+  clearAccountData() {
+    clearTimeout(this.replyTimer); this.replyTimer = null;
+    this.replies.rows.clear(); this.replies.unreadIds.clear(); this.replies.unread = 0;
+    for (const item of this.assetCache.values()) item.value.bytes.fill(0);
+    this.assetCache.clear(); this.assetCacheBytes = 0;
+    this.removeAllListeners();
+  }
   async stop() {
     this.running = false; this.generation++; this.clearTimers(); this.client?.close(); this.client = null;
     this.cancelDictation();

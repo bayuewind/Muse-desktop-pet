@@ -16,7 +16,9 @@ function render(state) {
   document.querySelector('#detail').textContent = state.detail;
   document.querySelector('#status').title = state.scope;
   document.querySelector('.eyebrow span').textContent = state.mode === 'native' ? '· 原生' : '· 本机';
-  document.querySelector('#open').textContent = state.mode === 'native' ? '重新连接 ↻' : '打开 Muse ↗';
+  const open = document.querySelector('#open');
+  open.textContent = state.mode === 'native' ? state.accountPhase === 'signed_out' ? '登录 Muse' : '重新连接 ↻' : '打开 Muse ↗';
+  open.disabled = !!state.accountPhase && state.accountPhase !== 'signed_out';
   const src = motion.matches ? null : sources[state.variant] ?? null;
   if (src !== currentSrc) {
     currentSrc = src; video.classList.remove('ready'); video.pause();
@@ -30,7 +32,24 @@ still.addEventListener('error', () => { still.hidden = true; });
 motion.addEventListener('change', () => render(latest));
 document.querySelector('#open').addEventListener('click', () => window.pet.openMuse());
 document.querySelector('#hide').addEventListener('click', () => window.pet.hide());
-document.querySelector('#portrait').addEventListener('click', () => window.pet.compose());
+const portrait = document.querySelector('#portrait'), orbit = document.querySelector('#orbit');
+let orbitOpen = false, orbitPending = false;
+function renderOrbit(expanded) {
+  orbitOpen = expanded; document.body.dataset.orbit = String(expanded); orbit.hidden = !expanded;
+  portrait.setAttribute('aria-expanded', String(expanded));
+  portrait.setAttribute('aria-label', expanded ? '收起气泡菜单' : '展开气泡菜单');
+}
+async function toggleOrbit() {
+  if (orbitPending) return; orbitPending = true;
+  try { renderOrbit(await window.pet.setOrbit(!orbitOpen)); } finally { orbitPending = false; }
+}
+portrait.addEventListener('click', () => void toggleOrbit());
+document.querySelector('#orbit-account').addEventListener('click', () => window.pet.accountMenu());
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && orbitOpen) void window.pet.setOrbit(false); });
+document.addEventListener('click', event => {
+  if (orbitOpen && !event.target.closest('button,.handle')) void window.pet.setOrbit(false);
+});
+window.pet.onOrbit(renderOrbit);
 window.pet.onState(render);
 window.pet.onUnread(count => { const badge=document.querySelector('#unread'); badge.hidden=!count; badge.textContent=count>9?'9+':String(count); });
 void window.pet.getState().then(render);

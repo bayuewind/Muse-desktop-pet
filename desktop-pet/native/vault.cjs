@@ -7,13 +7,27 @@ class CredentialVault {
   constructor(directory, safeStorage) {
     this.directory = directory; this.storage = safeStorage;
     this.filename = path.join(directory, 'native-session.enc');
+    this.disabledFile = path.join(directory, 'native-session.disabled');
   }
   ensureAvailable() {
     if (!this.storage.isEncryptionAvailable()) throw new Error('os_encryption_unavailable');
     if (this.storage.getSelectedStorageBackend?.() === 'basic_text') throw new Error('os_encryption_unavailable');
   }
+  isDisabled() { return fs.existsSync(this.disabledFile); }
+  exists() { return !this.isDisabled() && fs.existsSync(this.filename); }
+  clear() {
+    fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
+    if (!this.isDisabled()) fs.writeFileSync(this.disabledFile, 'signed-out\n', { flag: 'wx', mode: 0o600 });
+    try {
+      const stat = fs.lstatSync(this.filename);
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('unsafe_vault_file');
+      fs.unlinkSync(this.filename);
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+  finishClear() { if (this.isDisabled()) fs.unlinkSync(this.disabledFile); }
   save(bundle) {
     this.ensureAvailable();
+    if (this.isDisabled()) throw new Error('authorization_required');
     if (bundle?.version !== 1 || bundle.origin !== 'https://muse.ai' || !bundle.cookieJar || !bundle.target) throw new Error('invalid_credential_envelope');
     const plaintext = JSON.stringify(bundle);
     if (Buffer.byteLength(plaintext) > 1024 * 1024) throw new Error('credential_envelope_limit');
@@ -36,6 +50,7 @@ class CredentialVault {
   }
   load() {
     this.ensureAvailable();
+    if (this.isDisabled()) throw new Error('authorization_required');
     if (!fs.existsSync(this.filename)) throw new Error('authorization_required');
     const stat = fs.lstatSync(this.filename);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 2 * 1024 * 1024 || (stat.mode & 0o077) !== 0) throw new Error('unsafe_vault_file');

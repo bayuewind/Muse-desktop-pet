@@ -1,6 +1,7 @@
 'use strict';
 const draft = document.querySelector('#draft'), send = document.querySelector('#send'), voice = document.querySelector('#voice');
 const feedback = document.querySelector('#feedback'), recordingStrip = document.querySelector('#recording');
+document.querySelector('#account').addEventListener('click', () => window.composer.accountMenu());
 let connected = false, sending = false, transcribing = false, requestingMic = false, recording = null;
 let revision = 0, operation = 0, uncertainText = null, currentDraftId = crypto.randomUUID();
 async function deadline(promise, ms) {
@@ -22,7 +23,7 @@ function render(state) {
   connected = state?.mode === 'native' && !['unknown','login','syncing','approval','limited'].includes(state.kind);
   document.body.dataset.connected = String(connected);
   document.querySelector('#connection').textContent = connected ? '原生连接' : '等待原生连接';
-  if (state?.shortcutAvailable === false) document.querySelector('#shortcut').textContent = '快捷键被占用，可点击小人打开';
+  if (state?.shortcutAvailable === false) document.querySelector('#shortcut').textContent = '快捷键被占用，可从菜单栏打开';
   update();
 }
 draft.addEventListener('input', () => { revision++; currentDraftId = crypto.randomUUID(); if (uncertainText !== draft.value) uncertainText = null; update(); });
