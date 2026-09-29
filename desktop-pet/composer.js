@@ -1,6 +1,8 @@
 'use strict';
 const draft = document.querySelector('#draft'), send = document.querySelector('#send'), voice = document.querySelector('#voice');
 const feedback = document.querySelector('#feedback'), recordingStrip = document.querySelector('#recording');
+const shortcutLabel = navigator.userAgent.includes('Windows') ? 'Ctrl' : '⌘';
+document.querySelector('#shortcut').textContent = `${shortcutLabel}⇧M 快速呼出`;
 document.querySelector('#account').addEventListener('click', () => window.composer.accountMenu());
 let connected = false, sending = false, transcribing = false, requestingMic = false, recording = null;
 let revision = 0, operation = 0, uncertainText = null, currentDraftId = crypto.randomUUID();
@@ -13,7 +15,7 @@ function note(text, level = '') { feedback.textContent = text; feedback.dataset.
 function update() {
   document.querySelector('#count').textContent = `${draft.value.length} / 8000`;
   send.disabled = !connected || sending || transcribing || requestingMic || !!recording || !draft.value.trim() || uncertainText === draft.value;
-  send.innerHTML = sending ? '正在发送…' : '发送任务 <kbd>⌘↵</kbd>';
+  send.innerHTML = sending ? '正在发送…' : `发送任务 <kbd>${shortcutLabel}↵</kbd>`;
   voice.disabled = sending || transcribing || requestingMic || (!connected && !recording);
   voice.textContent = recording ? '■ 停止并转写' : transcribing ? '转写中…' : requestingMic ? '等待麦克风…' : '● 语音输入';
   document.body.dataset.recording = String(!!recording);

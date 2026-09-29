@@ -2,6 +2,7 @@
 const video = document.querySelector('#avatar');
 const still = document.querySelector('#still');
 const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+if (navigator.userAgent.includes('Windows')) document.querySelector('#portrait').title = '点击展开 / 收起聊天 · Ctrl+Shift+M';
 const sources = Object.freeze({
   default: 'https://muse.ai/avatars/hatch.mp4',
   working: 'https://muse.ai/avatars/hatch_working.mp4',

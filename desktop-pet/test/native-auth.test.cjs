@@ -29,7 +29,7 @@ test('vault refuses unavailable encryption and writes only opaque data with mode
     encryptString: value => { captured = value; return Buffer.from('opaque-test-ciphertext'); },
     decryptString: () => captured });
   vault.save(bundle()); assert.equal(vault.load().target.vmId, target.vmId);
-  assert.equal(fs.statSync(vault.filename).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(vault.filename).mode & 0o777, 0o600);
   assert.doesNotMatch(fs.readFileSync(vault.filename, 'utf8'), /test-only-session|exclude/);
 });
 test('native renewal pins the VM, updates cookie jar, and sends secrets only to allowed official endpoints', async () => {

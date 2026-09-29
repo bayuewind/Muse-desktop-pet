@@ -6,3 +6,8 @@ dist/
 .native-secrets*
 native/*.local.json
 .test-output/
+native-session.enc
+native-session.disabled
+.native-session-*.tmp
+AccountLogin-*/
+ChromeLogin/

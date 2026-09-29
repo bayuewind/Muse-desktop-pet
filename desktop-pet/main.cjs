@@ -154,7 +154,7 @@ function accountItems() {
   const phase = accounts?.phase, ready = nativeMode && !accountAction;
   return [
     { label: '登录 Muse…', enabled: ready && phase === 'signed_out', click: () => void runAccountAction('login') },
-    { label: '登录完成，连接此账号', enabled: ready && phase === 'awaiting_login', click: () => void runAccountAction('complete') },
+    { label: '手动检查并连接（备用）', enabled: ready && phase === 'awaiting_login', click: () => void runAccountAction('complete') },
     { label: '取消登录', enabled: ready && phase === 'awaiting_login', click: () => void runAccountAction('cancel') },
     { type: 'separator' },
     { label: '切换账号…', enabled: ready && phase === 'connected', click: () => void runAccountAction('switch') },
@@ -191,15 +191,14 @@ async function runAccountAction(action) {
       await accounts.logout();
     }
     if (['login','switch'].includes(action)) {
-      const result = await dialog.showMessageBox({ type: 'info', title: '登录 Muse', message: '使用新的专用窗口登录 Muse',
-        detail: '不会读取日常 Chrome 或复用旧账号。请在新窗口完成登录，再从桌宠菜单「账号 → 登录完成，连接此账号」确认。仅导入该窗口的 Muse 会话并加密保存在本机；验证成功后关闭登录窗口，日常运行仍不依赖浏览器。',
-        buttons: ['取消', '打开专用登录窗口'], defaultId: 1, cancelId: 0 });
-      if (result.response === 1 && !quitting) await accounts.login();
+      // Opening an isolated, ephemeral login window is non-destructive; avoid
+      // an extra native dialog that can be mistaken for the login surface.
+      if (!quitting) await accounts.login();
     }
     if (action === 'complete') await accounts.complete();
   } catch {
     if (!quitting) await dialog.showMessageBox({ type: 'error', title: '账号操作未完成', message: accounts.phase === 'cleanup_failed' ? '本机授权或专用登录资料未能完全清除。' : '尚未完成登录或原生身份验证。',
-      detail: accounts.phase === 'cleanup_failed' ? '连接已停止；请从账号菜单重试清除，不会自动恢复连接。' : '请确认专用窗口已登录并进入 Muse 聊天，再点击「登录完成，连接此账号」。不支持的 VM 身份验证不会被跳过；也可取消后重试。' });
+      detail: accounts.phase === 'cleanup_failed' ? '连接已停止；请从账号菜单重试清除，不会自动恢复连接。' : '请确认专用窗口已登录并进入 Muse 聊天。正常情况下会自动连接；也可从账号菜单「手动检查并连接（备用）」重试。不支持的 VM 身份验证不会被跳过。' });
   } finally { accountAction = false; updateMenus(); }
 }
 async function poll() {
@@ -316,14 +315,27 @@ async function createWindows() {
         if (account.phase !== 'connected') {
           const labels = { signed_out: '尚未登录 Muse', clearing: '正在清除本机登录', cleanup_failed: '本机登出未完成',
             opening_login: '正在打开登录窗口', awaiting_login: '请完成 Muse 登录', verifying_login: '正在验证新账号' };
-          nativeState = { kind: 'login', label: labels[account.phase] ?? '尚未登录 Muse', detail: account.phase === 'signed_out' ? '点「登录 Muse」或从账号菜单登录' : '菜单「账号」管理登录 · 云端任务不受影响',
+          const detectionHints = { watching: '登录后将自动验证并连接 · 每 2 秒检测',
+            timed_out: '自动检测已超时；可在账号菜单手动检查或取消后重试',
+            window_closed: '登录窗口已关闭；请在账号菜单取消后重新登录',
+            check_failed: '自动检测未完成；可在账号菜单手动检查或取消后重试',
+            verification_failed: '身份或连接验证未通过；可在账号菜单手动重试，不会跳过验证' };
+          const detail = account.phase === 'signed_out' ? '点「登录 Muse」或从账号菜单登录'
+            : account.phase === 'awaiting_login' ? detectionHints[account.loginDetection] ?? '登录后将自动验证并连接'
+            : account.phase === 'verifying_login' ? '已检测到登录 · 正在验证身份与连接'
+            : '菜单「账号」管理登录 · 云端任务不受影响';
+          nativeState = { kind: 'login', label: labels[account.phase] ?? '尚未登录 Muse', detail,
             variant: 'static', mode: 'native', accountPhase: account.phase };
           publish();
         }
         updateMenus();
       },
     });
-    await accounts.restore(); return;
+    await accounts.restore();
+    // Explicit one-shot convenience for a user-requested login. Normal startup
+    // still never opens a login browser without an action from the user.
+    if (process.argv.includes('--login') && accounts.phase === 'signed_out') await runAccountAction('login');
+    return;
   }
   const { ChromeEngine } = require('./chrome-engine.cjs');
   engine = new ChromeEngine(path.join(app.getPath('userData'), 'ChromeLogin'), invalidate);

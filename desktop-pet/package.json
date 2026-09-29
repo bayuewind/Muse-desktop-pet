@@ -12,7 +12,8 @@
     "probe:native": "electron native/probe.cjs",
     "verify:native": "electron native/complete-pair.cjs --approved-session-export",
     "test": "node --test test/*.test.cjs",
-    "smoke": "electron . --smoke-test"
+    "smoke": "electron . --smoke-test",
+    "smoke:browser": "node scripts/browser-smoke.cjs"
   },
   "devDependencies": { "electron": "44.4.5" },
   "dependencies": { "puppeteer-core": "25.12.0", "protobufjs": "8.8.0", "ws": "8.22.0", "tough-cookie": "6.0.2" },

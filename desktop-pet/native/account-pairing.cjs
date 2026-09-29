@@ -17,9 +17,9 @@ class AccountPairing {
     await this.browser.start();
   }
   check() { if (!this.active) throw new Error('pairing_cancelled'); }
-  async complete() {
+  async readMetadata() {
     this.check();
-    const metadata = await this.browser.evaluate(`(() => {
+    return this.browser.evaluate(`(() => {
       const host=document.querySelector('[data-hatch-avatar-host]');
       const key=host&&Object.keys(host).find(k=>k.startsWith('__reactFiber$'));
       let fiber=key?host[key]:null,target=null;const policyHints={};
@@ -30,6 +30,28 @@ class AccountPairing {
       }
       return {target,policyHints};
     })()`);
+  }
+  async readiness() {
+    this.check();
+    const browser = this.browser;
+    if (!browser?.browser || !browser.page || browser.page.isClosed()) return 'closed';
+    if (browser.origin !== 'https://muse.ai' || browser.loading || browser.httpError) return 'waiting';
+    try {
+      const metadata = await this.readMetadata();
+      this.check();
+      validateTarget(metadata?.target);
+      // This is only a readiness hint from our own page, not authorization.
+      // Cookies, official assignment, Noise binding and ping are checked once
+      // by complete(). In particular, CVM policies are never bypassed here.
+      return typeof metadata?.policyHints?.bootstrap_rolloutStatus === 'string' ? 'ready' : 'waiting';
+    } catch {
+      this.check();
+      // A navigating/loading React page may not yet have an assigned VM.
+      return 'waiting';
+    }
+  }
+  async complete() {
+    const metadata = await this.readMetadata();
     this.check();
     const target = validateTarget(metadata.target);
     // Unknown / confidential VM policies remain blocked, never silently bypassed.
@@ -71,7 +93,7 @@ class AccountPairing {
     if (this.profile) {
       const target = this.profile;
       if (path.dirname(target) !== this.directory || !path.basename(target).startsWith('AccountLogin-') || fs.existsSync(target) && fs.lstatSync(target).isSymbolicLink()) throw new Error('unsafe_login_profile');
-      await fs.promises.rm(target, { recursive: true, force: true }); this.profile = null;
+      await fs.promises.rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); this.profile = null;
     }
   }
 }

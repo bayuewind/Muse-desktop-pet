@@ -53,7 +53,12 @@ class CredentialVault {
     if (this.isDisabled()) throw new Error('authorization_required');
     if (!fs.existsSync(this.filename)) throw new Error('authorization_required');
     const stat = fs.lstatSync(this.filename);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 2 * 1024 * 1024 || (stat.mode & 0o077) !== 0) throw new Error('unsafe_vault_file');
+    // Windows does not implement POSIX permission bits: Node reports an
+    // emulated mode (normally 0666) even when the file is protected by the
+    // user's NTFS ACL. safeStorage encrypts with DPAPI on Windows, so retain
+    // the ownership-bit check only on platforms where chmod(0600) is real.
+    const unsafeMode = process.platform !== 'win32' && (stat.mode & 0o077) !== 0;
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 2 * 1024 * 1024 || unsafeMode) throw new Error('unsafe_vault_file');
     const bytes = fs.readFileSync(this.filename);
     if (!bytes.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error('invalid_vault_format');
     try {
