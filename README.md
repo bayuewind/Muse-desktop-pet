@@ -4,6 +4,8 @@
 
 <h1 align="center">Muse Desktop Pet</h1>
 
+<p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
+
 <p align="center">
   <strong>让 Meta 的 Muse，在你的桌面上有个位置。</strong><br>
   看见它的状态，随时与它交谈，让小人陪你把事情做完。<br>
