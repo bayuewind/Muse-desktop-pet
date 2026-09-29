@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('pet', Object.freeze({
   openMuse: () => ipcRenderer.send('pet:open-muse'),
   hide: () => ipcRenderer.send('pet:hide'),
   compose: () => ipcRenderer.send('pet:compose'),
+  workspace: view => ipcRenderer.send('pet:workspace', view),
   setOrbit: expanded => ipcRenderer.invoke('pet:orbit', expanded),
   accountMenu: () => ipcRenderer.send('pet:account-menu'),
   onOrbit: callback => {

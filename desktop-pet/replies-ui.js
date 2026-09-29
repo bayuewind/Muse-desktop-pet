@@ -21,7 +21,7 @@
     URL.revokeObjectURL(item.url);media.delete(key);mediaBytes-=item.size;
     item.preview.replaceChildren();item.load.disabled=false;item.load.textContent=item.label;
   }
-  function attachment(row,asset) {
+  function attachment(row,asset,surface='chat') {
     const card=document.createElement('div');card.className='attachment';
     const head=document.createElement('div');head.className='attachment-head';
     const names={code:'代码',image:'图片',audio:'音频',file:'文件'};
@@ -33,7 +33,7 @@
     if(asset.kind!=='file')head.append(load);head.append(save);
     const preview=document.createElement('div');preview.className='attachment-preview';
     const note=textNode('div','','attachment-note');card.append(head,preview,note);
-    const key=`${row.id}:${asset.id}`;
+    const key=`${surface}:${row.id}:${asset.id}`;
     load.onclick=async()=>{
       const requestEpoch=epoch;load.disabled=true;note.textContent='正在读取附件…';
       try {
@@ -68,7 +68,7 @@
     const nearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<70;
     if(snapshot.messages.length)feed.querySelector('.empty')?.remove();
     const wanted=new Set(snapshot.messages.map(message=>message.id));
-    for(const [id,entry]of rows)if(!wanted.has(id)){entry.article.remove();rows.delete(id);for(const key of [...media.keys()])if(key.startsWith(id+':'))release(key);}
+    for(const [id,entry]of rows)if(!wanted.has(id)){entry.article.remove();rows.delete(id);for(const key of [...media.keys()])if(key.startsWith('chat:'+id+':'))release(key);}
     for(const message of snapshot.messages){
       let entry=rows.get(message.id);
       if(!entry){
@@ -80,24 +80,33 @@
       if(entry.text!==message.text){messageText(entry.content,message.text,message.id);entry.text=message.text;}
       const signature=JSON.stringify(message.attachments);
       if(entry.assetSignature!==signature){
-        for(const key of [...media.keys()])if(key.startsWith(message.id+':'))release(key);
+        for(const key of [...media.keys()])if(key.startsWith('chat:'+message.id+':'))release(key);
         entry.assets.replaceChildren(...message.attachments.map(asset=>attachment(message,asset)));entry.assetSignature=signature;
       }
       entry.status.textContent=message.state==='streaming'?'正在接收…':message.state==='interrupted'?'连接中断，回复可能不完整。':message.state==='error'?'回复异常，请在 Muse 中检查。':message.truncated?'内容较长，已截断显示。':'';
       feed.append(entry.article);
     }
-    if(nearBottom){feed.scrollTop=feed.scrollHeight;newer.hidden=true;if(document.hasFocus())window.composer.markRead();}
+    if(!snapshot.messages.length && !feed.querySelector('.empty'))feed.append(textNode('p','暂无近期回复','empty'));
+    if(nearBottom){feed.scrollTop=feed.scrollHeight;newer.hidden=true;if(document.hasFocus() && document.body.dataset.view==='chat')window.composer.markRead();}
     else newer.hidden=!snapshot.unread;
   }
   newer.onclick=()=>{feed.scrollTop=feed.scrollHeight;newer.hidden=true;window.composer.markRead();};
-  feed.addEventListener('scroll',()=>{if(feed.scrollHeight-feed.scrollTop-feed.clientHeight<50&&document.hasFocus()){newer.hidden=true;window.composer.markRead();}});
+  feed.addEventListener('scroll',()=>{if(feed.scrollHeight-feed.scrollTop-feed.clientHeight<50&&document.hasFocus()&&document.body.dataset.view==='chat'){newer.hidden=true;window.composer.markRead();}});
   document.querySelector('#refresh-replies').onclick=async event=>{
-    const button=event.currentTarget;button.disabled=true;button.textContent='同步中…';
-    try{const result=await window.composer.refreshReplies();button.textContent=result?.ok?'已同步':'同步失败';}
-    catch{button.textContent='同步失败';}finally{button.disabled=false;}
+    const button=event.currentTarget;button.disabled=true;button.title='同步中';
+    try{const result=await window.composer.refreshReplies();button.title=result?.ok?'已同步':'同步失败';}
+    catch{button.title='同步失败';}finally{button.disabled=false;}
   };
   window.composer.onReplies(render);
   window.composer.onHidden(()=>{epoch++;for(const key of [...media.keys()])release(key);});
   window.composer.onFocus(()=>{void window.composer.replies().then(render);});
   void window.composer.replies().then(render);
+  window.museAttachments = Object.freeze({ create:attachment, clear(surface) {
+    epoch++;
+    for(const key of [...media.keys()])if(key.startsWith(surface+':'))release(key);
+  } });
+  document.addEventListener('composer:view-change', event => {
+    epoch++; for(const key of [...media.keys()])release(key);
+    if(event.detail==='chat')void window.composer.replies().then(render);
+  });
 })();

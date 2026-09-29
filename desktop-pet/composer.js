@@ -15,16 +15,20 @@ function note(text, level = '') { feedback.textContent = text; feedback.dataset.
 function update() {
   document.querySelector('#count').textContent = `${draft.value.length} / 8000`;
   send.disabled = !connected || sending || transcribing || requestingMic || !!recording || !draft.value.trim() || uncertainText === draft.value;
-  send.innerHTML = sending ? '正在发送…' : `发送任务 <kbd>${shortcutLabel}↵</kbd>`;
+  send.innerHTML = sending ? '<i data-lucide="loader-circle"></i><span>发送中</span>' : '<i data-lucide="arrow-up"></i><span>发送</span>';
+  send.title = `发送 (${shortcutLabel}+Enter)`;
   voice.disabled = sending || transcribing || requestingMic || (!connected && !recording);
-  voice.textContent = recording ? '■ 停止并转写' : transcribing ? '转写中…' : requestingMic ? '等待麦克风…' : '● 语音输入';
+  const voiceLabel = recording ? '停止并转写' : transcribing ? '转写中' : requestingMic ? '等待麦克风' : '语音输入';
+  voice.innerHTML = `<i data-lucide="${recording ? 'square' : transcribing || requestingMic ? 'loader-circle' : 'mic'}"></i>`;
+  voice.title = voiceLabel; voice.setAttribute('aria-label', voiceLabel);
+  window.lucide?.createIcons();
   document.body.dataset.recording = String(!!recording);
   recordingStrip.hidden = !recording;
 }
 function render(state) {
   connected = state?.mode === 'native' && !['unknown','login','syncing','approval','limited'].includes(state.kind);
   document.body.dataset.connected = String(connected);
-  document.querySelector('#connection').textContent = connected ? '原生连接' : '等待原生连接';
+  document.querySelector('#connection').textContent = state?.label || '等待原生连接';
   if (state?.shortcutAvailable === false) document.querySelector('#shortcut').textContent = '快捷键被占用，可从菜单栏打开';
   update();
 }
@@ -120,12 +124,17 @@ document.querySelector('#close').addEventListener('click', () => { cancelAudio()
 document.addEventListener('keydown', event => {
   if (event.isComposing) return;
   if (event.key === 'Escape') { event.preventDefault(); cancelAudio(); window.composer.hide(); }
-  if (event.key === 'Enter' && event.metaKey) { event.preventDefault(); void submit(); }
+  if (document.body.dataset.view === 'chat' && event.key === 'Enter' &&
+      (navigator.userAgent.includes('Mac') ? event.metaKey : event.ctrlKey)) { event.preventDefault(); void submit(); }
 });
 window.addEventListener('blur', () => { if (recording) { cancelAudio(); note('切换窗口已取消录音，没有上传。'); } });
 window.addEventListener('beforeunload', cancelAudio);
 window.composer.onHidden(cancelAudio);
-window.composer.onFocus(() => draft.focus());
+window.composer.onFocus(() => { if (document.body.dataset.view === 'chat') draft.focus(); });
+document.addEventListener('composer:view-change', event => {
+  if (event.detail !== 'chat') cancelAudio();
+  else draft.focus();
+});
 window.composer.onState(render);
 void window.composer.state().then(render);
 draft.focus(); update();

@@ -27,13 +27,14 @@
   </main>
   <nav id="orbit" class="orbit" aria-label="桌宠气泡菜单" hidden>
     <button class="bubble account-bubble" id="orbit-account" title="登录、切换账号或登出" aria-label="账号：登录、切换或登出">
-      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20v-2a7 7 0 0 1 14 0v2"/></svg>
+      <i data-lucide="user-round"></i>
       <span>账号</span>
     </button>
-    <button class="bubble empty-bubble slot-one" disabled aria-label="预留空位一" title="预留空位"></button>
-    <button class="bubble empty-bubble slot-two" disabled aria-label="预留空位二" title="预留空位"></button>
-    <button class="bubble empty-bubble slot-three" disabled aria-label="预留空位三" title="预留空位"></button>
+    <button class="bubble slot-one" data-workspace="tasks" aria-label="任务中心" title="任务中心"><i data-lucide="list-checks"></i><span>任务</span></button>
+    <button class="bubble slot-two" data-workspace="library" aria-label="近期成果" title="近期成果"><i data-lucide="folder-open"></i><span>成果</span></button>
+    <button class="bubble slot-three" data-workspace="settings" aria-label="桌面设置" title="桌面设置"><i data-lucide="settings-2"></i><span>设置</span></button>
   </nav>
+  <script src="node_modules/lucide/dist/umd/lucide.min.js"></script>
   <script src="pet.js"></script>
 </body>
 </html>

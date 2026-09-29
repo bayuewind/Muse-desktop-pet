@@ -2,6 +2,19 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('composer', Object.freeze({
   state: () => ipcRenderer.invoke('composer:state'),
+  workspace: () => ipcRenderer.invoke('composer:workspace'),
+  refreshWorkspace: () => ipcRenderer.invoke('composer:refresh-workspace'),
+  preferences: () => ipcRenderer.invoke('composer:preferences'),
+  setPreferences: patch => ipcRenderer.invoke('composer:set-preferences', patch),
+  officialPage: key => ipcRenderer.invoke('composer:official-page', key),
+  onWorkspace: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('composer:workspace', listener); return () => ipcRenderer.removeListener('composer:workspace', listener);
+  },
+  onView: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('composer:view', listener); return () => ipcRenderer.removeListener('composer:view', listener);
+  },
   send: draft => ipcRenderer.invoke('composer:send', draft),
   hide: () => ipcRenderer.send('composer:hide'),
   accountMenu: () => ipcRenderer.send('composer:account-menu'),

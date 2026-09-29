@@ -4,34 +4,77 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: https://muse.ai; media-src blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'; worker-src 'self'">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Muse 会话</title>
+  <title>Muse 桌面</title>
   <link rel="stylesheet" href="composer.css">
+  <link rel="stylesheet" href="workspace.css">
 </head>
-<body>
+<body data-view="chat">
   <main>
     <header>
-      <img src="https://muse.ai/avatars/hatch.jpg" alt="" width="36" height="36">
-      <div><strong>Muse 会话</strong><small><span id="connection-dot"></span><span id="connection">正在连接</span> · 主会话</small></div>
-      <button id="account" title="登录、登出或切换账号">账号 ▾</button>
-      <button id="close" aria-label="收起输入框" title="Esc 收起">×</button>
+      <img src="assets/muse.png" alt="" width="36" height="36">
+      <div class="identity"><strong>Muse</strong><small><span id="connection-dot"></span><span id="connection">正在连接</span></small></div>
+      <button id="account" class="icon-button" title="账号" aria-label="账号"><i data-lucide="user-round"></i></button>
+      <button id="close" class="icon-button" aria-label="收起窗口" title="收起窗口"><i data-lucide="x"></i></button>
     </header>
-    <div class="feed-toolbar"><span>文字 · 代码 · 图片 · 音频</span><button id="refresh-replies">同步近期回复</button></div>
-    <section id="replies" class="replies" aria-label="Muse 回复" aria-live="polite"><p class="empty">Muse 的回复会显示在这里。</p></section>
-    <button id="new-replies" class="new-replies" hidden>查看新回复 ↓</button>
+    <nav class="view-tabs" role="tablist" aria-label="工作区">
+      <button id="tab-chat" role="tab" aria-selected="true" aria-controls="panel-chat" data-view="chat"><i data-lucide="message-circle"></i>聊天</button>
+      <button id="tab-tasks" role="tab" aria-selected="false" aria-controls="panel-tasks" data-view="tasks" tabindex="-1"><i data-lucide="list-checks"></i>任务<span id="task-count" class="count-badge" hidden></span></button>
+      <button id="tab-library" role="tab" aria-selected="false" aria-controls="panel-library" data-view="library" tabindex="-1"><i data-lucide="folder-open"></i>成果</button>
+      <button id="tab-settings" class="settings-tab" role="tab" aria-selected="false" aria-controls="panel-settings" aria-label="桌面设置" title="桌面设置" data-view="settings" tabindex="-1"><i data-lucide="settings-2"></i></button>
+    </nav>
+    <section id="panel-chat" class="view-panel chat-panel" role="tabpanel" aria-labelledby="tab-chat">
+    <div class="feed-toolbar"><span>主会话</span><button id="refresh-replies" class="icon-button" title="同步近期回复" aria-label="同步近期回复"><i data-lucide="refresh-cw"></i></button></div>
+    <section id="replies" class="replies" aria-label="Muse 回复" aria-live="polite"><p class="empty">暂无近期回复</p></section>
+    <button id="new-replies" class="new-replies" hidden>查看新回复</button>
     <label class="sr-only" for="draft">任务内容</label>
     <textarea id="draft" maxlength="8000" placeholder="给 Muse 下达任务，或继续追问…" spellcheck="false"></textarea>
     <div class="recording" id="recording" hidden><span class="pulse"></span><span id="recording-label">正在录音</span><button id="cancel-recording">取消</button></div>
-    <div class="feedback" id="feedback" role="status" aria-live="polite">语音先转成文字，确认后才会发送任务。</div>
+    <div class="feedback" id="feedback" role="status" aria-live="polite"></div>
     <footer>
-      <button class="voice" id="voice" title="录音并转成文字" aria-label="开始语音输入"><span aria-hidden="true">●</span> 语音输入</button>
+      <button class="voice icon-button" id="voice" title="录音并转成文字" aria-label="开始语音输入"><i data-lucide="mic"></i></button>
       <span id="count">0 / 8000</span>
-      <button class="send" id="send" disabled>发送任务 <kbd>⌘↵</kbd></button>
+      <button class="send" id="send" disabled><i data-lucide="arrow-up"></i><span>发送</span></button>
     </footer>
-    <p class="privacy">停止录音后交给 Muse 转写，本机不保存音频；确认文字后才下达任务。</p>
-    <div class="bottom"><span id="shortcut">⌘⇧M 快速呼出</span><span>Enter 换行 · Esc 收起</span></div>
+    <span id="shortcut" class="sr-only"></span>
+    </section>
+    <section id="panel-tasks" class="view-panel" role="tabpanel" aria-labelledby="tab-tasks" hidden>
+      <div class="panel-heading"><div><h1>任务中心</h1><p id="workspace-updated">等待同步</p></div><button id="refresh-workspace" class="icon-button" title="刷新任务" aria-label="刷新任务"><i data-lucide="refresh-cw"></i></button></div>
+      <div id="workspace-warning" class="status-banner" role="status" hidden></div>
+      <div id="attention" class="attention-banner" hidden><i data-lucide="circle-alert"></i><span id="attention-text"></span><button data-official="chat">去处理<i data-lucide="external-link"></i></button></div>
+      <div class="task-metrics"><div><strong id="metric-running">—</strong><span>定时运行</span></div><div><strong id="metric-schedules">—</strong><span>启用计划</span></div><div><strong id="metric-next">—</strong><span>下次执行</span></div></div>
+      <label class="search-field"><i data-lucide="search"></i><input id="task-search" type="search" placeholder="搜索任务" aria-label="搜索任务" maxlength="200"></label>
+      <div class="segment-control" role="group" aria-label="任务分类"><button data-task-filter="running" aria-pressed="false">进行中</button><button data-task-filter="schedules" aria-pressed="true">计划</button><button data-task-filter="runs" aria-pressed="false">运行记录</button><button data-task-filter="activities" aria-pressed="false">动态</button></div>
+      <div id="task-list" class="panel-scroll" aria-label="任务列表"><p class="empty">等待同步</p></div>
+      <div class="panel-bottom"><span id="task-scope">近期可观察记录</span><button data-official="chat" title="打开 Muse 官网"><i data-lucide="external-link"></i>Muse</button></div>
+    </section>
+    <section id="panel-library" class="view-panel" role="tabpanel" aria-labelledby="tab-library" hidden>
+      <div class="panel-heading"><div><h1>近期成果</h1><p id="library-count">当前会话 · 0 个附件</p></div><button data-official="library" class="icon-button" title="打开云端资源库" aria-label="打开云端资源库"><i data-lucide="external-link"></i></button></div>
+      <label class="search-field"><i data-lucide="search"></i><input id="library-search" type="search" placeholder="搜索文件名" aria-label="搜索文件名" maxlength="200"></label>
+      <div class="segment-control" role="group" aria-label="成果类型"><button data-library-filter="all" aria-pressed="true">全部</button><button data-library-filter="image" aria-pressed="false">图片</button><button data-library-filter="audio" aria-pressed="false">音频</button><button data-library-filter="code" aria-pressed="false">代码</button><button data-library-filter="file" aria-pressed="false">文件</button></div>
+      <div id="library-list" class="panel-scroll" aria-label="成果列表"><p class="empty">暂无收到的附件</p></div>
+      <div class="panel-bottom"><span>近期主会话附件</span><button data-official="library">完整资源库<i data-lucide="external-link"></i></button></div>
+    </section>
+    <section id="panel-settings" class="view-panel" role="tabpanel" aria-labelledby="tab-settings" hidden>
+      <div class="panel-heading"><div><h1>桌面设置</h1><p>Muse Desktop Pet</p></div></div>
+      <div class="panel-scroll">
+        <h2>提醒</h2>
+        <label class="setting-row"><span>任务完成、失败与待处理</span><input id="notifications-enabled" type="checkbox" role="switch"></label>
+        <label class="setting-row"><span>免打扰</span><select id="quiet-duration" aria-label="免打扰时长"><option value="0">关闭</option><option value="3600000">1 小时</option><option value="28800000">8 小时</option></select></label>
+        <p id="quiet-status" class="muted"></p>
+        <p class="muted">系统通知不包含任务正文或附件名称。</p>
+        <h2>云端空间</h2>
+        <button class="destination-row" data-official="goals"><i data-lucide="target"></i><span>目标</span><i data-lucide="external-link"></i></button>
+        <button class="destination-row" data-official="ideas"><i data-lucide="lightbulb"></i><span>点子</span><i data-lucide="external-link"></i></button>
+        <button class="destination-row" data-official="library"><i data-lucide="library"></i><span>完整资源库</span><i data-lucide="external-link"></i></button>
+        <button class="destination-row" data-official="chat"><i data-lucide="shield-check"></i><span>审批与连接器</span><i data-lucide="external-link"></i></button>
+      </div>
+    </section>
+    <div id="workspace-feedback" role="status" aria-live="polite" hidden></div>
   </main>
+  <script src="node_modules/lucide/dist/umd/lucide.min.js"></script>
   <script src="composer-motion.js"></script>
   <script src="replies-ui.js"></script>
   <script src="composer.js"></script>
+  <script src="workspace-ui.js"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, screen, powerMonitor, safeStorage, globalShortcut, systemPreferences, dialog, clipboard } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, screen, powerMonitor, safeStorage, globalShortcut, systemPreferences, dialog, clipboard, shell, Notification } = require('electron');
 const { randomUUID } = require('node:crypto');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -8,6 +8,14 @@ let observerFactory = null;
 const observerFile = path.join(__dirname, 'observer.cjs');
 let observerMtime = 0;
 const { deriveState } = require('./state.cjs');
+const { NotificationPolicy } = require('./notifications.cjs');
+const { Preferences } = require('./preferences.cjs');
+const { WorkspaceModel } = require('./native/workspace.cjs');
+const notificationPolicy = new NotificationPolicy();
+const activeNotifications = new Set();
+let preferences;
+const OFFICIAL_PAGES = Object.freeze({ chat: 'https://muse.ai/', goals: 'https://muse.ai/goals',
+  ideas: 'https://muse.ai/ideas', library: 'https://muse.ai/library/artifacts' });
 
 const smoke = process.argv.includes('--smoke-test');
 app.setName('Muse 桌宠');
@@ -43,6 +51,31 @@ function isComposer(event) {
   return composerWindow && event.sender === composerWindow.webContents && event.senderFrame?.url === composerURL;
 }
 function composerState() { return { ...currentState, shortcutAvailable }; }
+function workspaceSnapshot() { return engine?.workspace?.snapshot(engine.state) ?? new WorkspaceModel().snapshot(); }
+async function showWorkspace(view = 'chat') {
+  if (!['chat', 'tasks', 'library', 'settings'].includes(view)) return;
+  await showComposer();
+  if (composerWindow && !composerWindow.isDestroyed()) composerWindow.webContents.send('composer:view', view);
+}
+function clearNotifications() {
+  for (const notification of activeNotifications) notification.close();
+  activeNotifications.clear(); notificationPolicy.reset();
+}
+function notifyWorkspace(snapshot) {
+  const events = notificationPolicy.consume(snapshot, { enabled: preferences?.snapshot().notifications ?? false,
+    quietUntil: preferences?.snapshot().quietUntil ?? 0, focused: composerWindow?.isVisible() && composerWindow?.isFocused() });
+  if (smoke || !Notification.isSupported()) return;
+  for (const event of events) {
+    if (activeNotifications.size >= 3) { const oldest = activeNotifications.values().next().value; oldest.close(); activeNotifications.delete(oldest); }
+    const title = event.kind === 'attention' ? 'Muse 需要你处理' : event.kind === 'failed' ? 'Muse 任务未完成' : 'Muse 任务已完成';
+    const notification = new Notification({ title, body: event.kind === 'attention'
+      ? '有活动等待回应、批准或用量处理。' : `${event.count} 项任务有新结果。打开任务中心查看。`,
+      icon: appIconPath, silent: true });
+    notification.on('click', () => { void showWorkspace('tasks'); });
+    notification.on('close', () => activeNotifications.delete(notification));
+    activeNotifications.add(notification); notification.show();
+  }
+}
 function cancelVoice() {
   microphoneAllowedUntil = 0; voiceLease = null; engine?.cancelDictation?.();
   if (composerWindow && !composerWindow.isDestroyed()) composerWindow.webContents.send('composer:hidden');
@@ -107,6 +140,7 @@ function prepareComposer(window) {
   window.show(); window.focus();
   window.webContents.send('pet:state', composerState());
   window.webContents.send('composer:replies', engine?.replies?.snapshot() ?? { messages: [], unread: 0 });
+  window.webContents.send('composer:workspace', workspaceSnapshot());
 }
 async function createComposer() {
   composerWindow = new BrowserWindow({ width: 580, height: 730, minWidth: 440, minHeight: 540, title: 'Muse 会话', frame: false,
@@ -170,6 +204,9 @@ function updateMenus() {
   if (quitting) return;
   const common = [
     { label: '下达任务（文字 / 语音）', accelerator: COMPOSER_SHORTCUT, click: () => void showComposer() },
+    { label: '任务中心', click: () => void showWorkspace('tasks') },
+    { label: '近期成果', click: () => void showWorkspace('library') },
+    { label: '桌面设置', click: () => void showWorkspace('settings') },
     { label: '账号', submenu: accountItems() },
     { label: '显示桌宠', click: showPet },
     { label: nativeMode ? '原生重连 / 登录' : '打开 Muse / 登录', enabled: !nativeMode || accounts?.phase === 'connected' || accounts?.phase === 'signed_out', click: showMuse },
@@ -303,10 +340,16 @@ async function createWindows() {
           if (petWindow && !petWindow.isDestroyed()) petWindow.webContents.send('pet:unread', replies.unread);
           if (composerWindow && !composerWindow.isDestroyed()) composerWindow.webContents.send('composer:replies', replies);
         });
+        source.on('workspace', snapshot => {
+          if (quitting || accounts.source !== source) return;
+          notifyWorkspace(snapshot);
+          if (composerWindow && !composerWindow.isDestroyed()) composerWindow.webContents.send('composer:workspace', snapshot);
+        });
         return source;
       },
       resetViews: () => {
         cancelVoice();
+        clearNotifications();
         composerVisibility.reset();
         if (composerWindow && !composerWindow.isDestroyed()) composerWindow.destroy();
         composerWindow = null;
@@ -395,7 +438,7 @@ async function runSmoke() {
       return {
       expanded:document.body.dataset.orbit==='true',
       four:document.querySelectorAll('#orbit .bubble').length===4,
-      empty:document.querySelectorAll('#orbit .empty-bubble:disabled').length===3,
+      destinations:document.querySelectorAll('#orbit [data-workspace]:enabled').length===3,
       account:!!document.querySelector('#orbit-account'),
       separate:!portrait.contains(document.querySelector('#menu-dot')),
       rightSide:boxes.every(box=>box.left>portrait.getBoundingClientRect().right),
@@ -453,15 +496,19 @@ async function runSmoke() {
         feed.textContent.includes('<img src=x onerror=alert(1)>');
     })()`);
     if (!repliesSafe) throw new Error('unsafe_reply_rendering');
+    if (process.argv.includes('--workspace-test')) await require('./scripts/workspace-smoke.cjs').runWorkspaceSmoke(composerWindow);
     console.log('SMOKE_PASS: pet + composer toggle/motion + native window following + reply/file cards + audio worklet; no microphone opened; no message sent; sandbox/isolation enabled');
     app.quit();
-  } catch { console.error('SMOKE_FAIL'); app.exit(1); }
+  } catch (error) { console.error('SMOKE_FAIL', error.code === 'ERR_ASSERTION' ? error.message : /^[a-z_]+$/.test(error.message) ? error.message : 'unexpected_error'); app.exit(1); }
 }
 
 ipcMain.handle('pet:get-state', event => isPet(event) ? currentState : null);
 ipcMain.on('pet:open-muse', event => { if (isPet(event)) showMuse(); });
 ipcMain.on('pet:hide', event => { if (isPet(event)) { setPetOrbit(false); petWindow.hide(); } });
 ipcMain.on('pet:compose', event => { if (isPet(event)) toggleComposer(); });
+ipcMain.on('pet:workspace', (event, view) => {
+  if (isPet(event) && petWindow.isVisible()) void showWorkspace(view);
+});
 ipcMain.handle('pet:orbit', (event, expanded) => isPet(event) && typeof expanded === 'boolean' ? setPetOrbit(expanded) : false);
 ipcMain.on('pet:account-menu', event => {
   if (isPet(event) && petWindow.isVisible() && petOrbit) Menu.buildFromTemplate(accountItems()).popup({ window: petWindow });
@@ -470,6 +517,28 @@ ipcMain.on('composer:account-menu', event => {
   if (isComposer(event) && composerWindow.isVisible()) Menu.buildFromTemplate(accountItems()).popup({ window: composerWindow });
 });
 ipcMain.handle('composer:state', event => isComposer(event) ? composerState() : null);
+ipcMain.handle('composer:workspace', event => isComposer(event) ? workspaceSnapshot() : null);
+ipcMain.handle('composer:refresh-workspace', event =>
+  isComposer(event) && composerWindow.isVisible() && nativeMode && !smoke && engine
+    ? engine.refreshWorkspace() : { ok: false });
+ipcMain.handle('composer:preferences', event => isComposer(event) ? preferences.snapshot() : null);
+ipcMain.handle('composer:set-preferences', (event, patch) => {
+  if (!isComposer(event) || !composerWindow.isVisible() || !composerWindow.isFocused()) return { ok: false };
+  try {
+    const value = preferences.update(patch);
+    if (!value.notifications || value.quietUntil > Date.now()) {
+      for (const notification of activeNotifications) notification.close();
+      activeNotifications.clear();
+    }
+    return { ok: true, value };
+  } catch { return { ok: false }; }
+});
+ipcMain.handle('composer:official-page', async (event, key) => {
+  if (!isComposer(event) || !composerWindow.isVisible() || !composerWindow.isFocused() ||
+      typeof key !== 'string' || !Object.hasOwn(OFFICIAL_PAGES, key) || smoke) return { ok: false };
+  try { await shell.openExternal(OFFICIAL_PAGES[key]); return { ok: true }; }
+  catch { return { ok: false }; }
+});
 ipcMain.on('composer:hide', event => { if (isComposer(event)) hideComposer(); });
 ipcMain.on('composer:transition-done', (event, id) => { if (isComposer(event) && Number.isSafeInteger(id)) composerVisibility.complete(id); });
 ipcMain.handle('composer:replies', event => isComposer(event) ? engine?.replies?.snapshot() ?? { messages: [], unread: 0 } : null);
@@ -544,6 +613,7 @@ else {
   process.on('SIGINT', () => app.quit());
   app.on('second-instance', () => { showPet(); void showComposer(); });
   app.whenReady().then(() => {
+    preferences = new Preferences(app.getPath('userData'));
     powerMonitor.on('suspend', () => { suspended = true; cancelVoice(); if (nativeMode) void engine?.pause(); else invalidate(); });
     powerMonitor.on('resume', () => { suspended = false; if (nativeMode) void engine?.reload(); else { invalidate(); void poll(); } });
     return createWindows();
@@ -553,6 +623,7 @@ else {
   app.on('before-quit', event => {
     if (quitting) return;
     quitting = true; clearInterval(timer); cancelVoice(); globalShortcut.unregisterAll(); tray?.destroy();
+    clearNotifications();
     composerVisibility.reset();
     if (accounts || engine) { event.preventDefault(); void (accounts ? accounts.stop() : engine.stop()).then(() => app.exit(0), () => app.exit(1)); }
   });

@@ -47,6 +47,8 @@ async function toggleOrbit() {
 portrait.addEventListener('click', () => window.pet.compose());
 menuDot.addEventListener('click', event => { event.stopPropagation(); void toggleOrbit(); });
 document.querySelector('#orbit-account').addEventListener('click', () => window.pet.accountMenu());
+for (const button of document.querySelectorAll('[data-workspace]')) button.addEventListener('click', () => window.pet.workspace(button.dataset.workspace));
+window.lucide.createIcons();
 document.addEventListener('keydown', event => { if (event.key === 'Escape' && orbitOpen) void window.pet.setOrbit(false); });
 document.addEventListener('click', event => {
   if (orbitOpen && !event.target.closest('button,.handle')) void window.pet.setOrbit(false);

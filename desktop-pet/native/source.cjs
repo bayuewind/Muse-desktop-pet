@@ -8,6 +8,7 @@ const { OutgoingTasks } = require('./outgoing.cjs');
 const { toDictationPCM } = require('./audio.cjs');
 const { ReplyStore } = require('./replies.cjs');
 const { readAttachment } = require('./attachments.cjs');
+const { WorkspaceModel } = require('./workspace.cjs');
 class NativeSource extends EventEmitter {
   constructor(vault) {
     super(); this.vault = vault; this.state = new NativeStatus(); this.generation = 0;
@@ -18,15 +19,17 @@ class NativeSource extends EventEmitter {
       this.replyTimer = setTimeout(() => { this.replyTimer = null; this.emit('replies', this.replies.snapshot()); }, 100);
     });
     this.assetCache = new Map(); this.assetCacheBytes = 0;
+    this.workspace = new WorkspaceModel(); this.pollWorkspace = null;
   }
   publish() {
     const view = this.state.view(); this.emit('state', view);
+    this.emit('workspace', this.workspace.snapshot(this.state));
     const log = JSON.stringify({ kind: view.kind, label: view.label, detail: view.detail, schedules: view.schedules, recentRuns: view.recentRuns });
     if (log !== this.lastLog) { this.lastLog = log; console.log(`NATIVE_STATE ${log}`); }
   }
   async start() {
     this.running = true; const generation = ++this.generation;
-    this.state.reset('connecting'); this.publish();
+    this.state.reset('connecting'); this.workspace.reconnect(); this.publish();
     void this.connect(generation, 1000);
   }
   interval(fn, ms) { const timer = setInterval(fn, ms); this.timers.add(timer); return timer; }
@@ -37,8 +40,10 @@ class NativeSource extends EventEmitter {
     const epoch = this.connectionEpoch = (this.connectionEpoch ?? 0) + 1;
     let auth, closedReason = 'connection_failed';
     const closed = new Promise(resolve => client.once('closed', reason => { closedReason = reason; resolve(); }));
-    const current = () => this.running && generation === this.generation;
+    const current = () => this.running && generation === this.generation && this.client === client;
     let pollBusy = false, pingBusy = false;
+    let lastActivityAttempt = 0;
+    this.workspace.reconnect();
     client.on('chat-event', (type, payload, meta) => {
       if (current()) {
         const context = { ...meta, epoch };
@@ -48,7 +53,7 @@ class NativeSource extends EventEmitter {
     });
     client.on('status-event', (event, payload, meta) => {
       if (!current()) return;
-      if (event === 'agent.status') this.state.agent(payload, meta);
+      if (event === 'agent.status') { this.state.agent(payload, meta); this.workspace.agent(payload, meta); }
       this.publish();
     });
     try {
@@ -66,13 +71,16 @@ class NativeSource extends EventEmitter {
       };
       await ping();
       const poll = async () => {
-        if (!current() || pollBusy) return; pollBusy = true;
+        if (!current() || pollBusy) return { ok: false }; pollBusy = true;
+        let ok = false;
         try {
           const [runs, schedules, subagents] = await Promise.all([
             client.request('tasks.runs', { limit: 100 }), client.request('tasks.list'), client.request('subagents.list'),
           ]);
           if (current()) {
             this.state.polls({ runs, schedules, subagents });
+            this.workspace.polls({ runs, schedules, subagents });
+            ok = true;
             if (!this.scheduleLogged) {
               this.scheduleLogged = true;
               const view = this.state.view();
@@ -80,9 +88,18 @@ class NativeSource extends EventEmitter {
                 recentRuns: view.recentRuns, nextRunInSeconds: view.nextRunInSeconds }));
             }
           }
+          if (current() && Date.now() - lastActivityAttempt >= 30000) {
+            lastActivityAttempt = Date.now();
+            try {
+              const activity = await client.request('activity.list');
+              if (current()) this.workspace.activity(activity);
+            } catch { if (current()) this.workspace.activityFailed = true; }
+          }
         } catch { if (current()) this.state.pollAt = 0; }
         finally { pollBusy = false; if (current()) this.publish(); }
+        return { ok: ok && current() };
       };
+      this.pollWorkspace = poll;
       await Promise.all(['chat.subscribe','activity.subscribe','tasks.subscribe'].map(method => client.request(method)));
       try { const startedAt = Date.now(); const history = await client.request('chat.history', { limit: 20 }); if (current()) this.replies.history(history, startedAt); } catch {}
       await poll();
@@ -121,6 +138,10 @@ class NativeSource extends EventEmitter {
     if (!identity && !authRequired) this.retryTimer = setTimeout(() => void this.connect(generation, Math.min(30000, retry*2)), retry);
   }
   async reload() { await this.stop(); return this.start(); }
+  async refreshWorkspace() {
+    if (!this.running || !this.client?.ready || this.client.closed || !this.pollWorkspace) return { ok: false };
+    return this.pollWorkspace();
+  }
   async refreshReplies() {
     const client = this.client, generation = this.generation;
     if (!client?.ready || client.closed) return { ok: false };
@@ -190,6 +211,7 @@ class NativeSource extends EventEmitter {
     this.replies.rows.clear(); this.replies.unreadIds.clear(); this.replies.unread = 0;
     for (const item of this.assetCache.values()) item.value.bytes.fill(0);
     this.assetCache.clear(); this.assetCacheBytes = 0;
+    this.workspace.reset(); this.pollWorkspace = null;
     this.removeAllListeners();
   }
   async stop() {

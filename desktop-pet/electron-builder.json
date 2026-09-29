@@ -11,7 +11,7 @@
   "directories": { "output": "dist", "buildResources": "build" },
   "files": [
     "*.cjs", "*.js", "*.html", "*.css", "package.json", "assets/*.png", "assets/*.ico",
-    "native/{account-pairing,accounts,activity-model,attachments,audio,auth,gateway-client,noise-xx,outgoing,peer-renewal,replies,source,status,subscription,vault,wire}.cjs"
+    "native/{account-pairing,accounts,activity-model,attachments,audio,auth,gateway-client,noise-xx,outgoing,peer-renewal,replies,source,status,subscription,vault,wire,workspace}.cjs"
   ],
   "win": {
     "icon": "assets/muse.ico",
