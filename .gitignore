@@ -1,0 +1,6 @@
+node_modules/
+.wrangler/
+.dev.vars
+.secrets.json
+backups/
+dist/

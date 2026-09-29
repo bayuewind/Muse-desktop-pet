@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https://muse.ai; media-src https://muse.ai; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Muse 桌宠</title>
+  <link rel="stylesheet" href="pet.css">
+</head>
+<body data-kind="login">
+  <main class="pet">
+    <div class="handle" title="拖动这里移动桌宠"><span></span></div>
+    <button class="hide" id="hide" aria-label="隐藏桌宠">×</button>
+    <div class="portrait" id="portrait">
+      <div class="fallback" aria-hidden="true"><div class="face"><i></i><b>⌣</b><i></i></div></div>
+      <img id="still" src="https://muse.ai/avatars/hatch.jpg" alt="Muse 桌宠">
+      <video id="avatar" muted autoplay loop playsinline aria-hidden="true"></video>
+      <span class="dot" aria-hidden="true"></span>
+    </div>
+    <section class="caption">
+      <div class="eyebrow">MUSE COMPANION <span>· 本机</span></div>
+      <div id="status" role="status" aria-live="polite">请先登录 Muse</div>
+      <p id="detail">点下方按钮打开独立登录窗口</p>
+      <button id="open">打开 Muse <span>↗</span></button>
+    </section>
+  </main>
+  <script src="pet.js"></script>
+</body>
+</html>
