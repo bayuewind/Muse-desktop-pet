@@ -21,6 +21,7 @@ let petWindow, engine, tray, timer, quitting = false, polling = false, suspended
 let composerWindow, shortcutAvailable = false, microphoneAllowedUntil = 0, voiceLease = null;
 let accounts, accountAction = false;
 let petOrbit = null;
+let composerCreating = null, composerOrigin = { x:100, y:30 };
 let resetNeeded = false, lifecycle = 0, sample = null, receivedAt = 0;
 let currentState = deriveState({ sourceReady: false });
 let nativeState = { kind: 'unknown', label: '原生连接中', detail: '不启动浏览器 · 正在恢复本机会话', variant: 'static', mode: 'native' };
@@ -40,7 +41,29 @@ function cancelVoice() {
   microphoneAllowedUntil = 0; voiceLease = null; engine?.cancelDictation?.();
   if (composerWindow && !composerWindow.isDestroyed()) composerWindow.webContents.send('composer:hidden');
 }
-function hideComposer() { cancelVoice(); composerWindow?.hide(); }
+const { ComposerVisibility } = require('./composer-visibility.cjs');
+const composerVisibility = new ComposerVisibility({
+  ensure: async open => {
+    if (!open) return composerWindow && !composerWindow.isDestroyed() ? composerWindow : null;
+    if (!composerWindow || composerWindow.isDestroyed()) {
+      if (!composerCreating) composerCreating = createComposer().finally(() => { composerCreating = null; });
+      await composerCreating;
+    } else if (composerCreating) await composerCreating;
+    return composerWindow;
+  },
+  show: window => prepareComposer(window),
+  animate: (window, transition) => window.webContents.send('composer:transition', { ...transition, origin: composerOrigin }),
+  hide: window => window.hide(),
+  focus: window => {
+    window.focus(); window.webContents.focus(); window.webContents.send('composer:focus');
+  },
+  closing: cancelVoice,
+});
+function hideComposer() { void composerVisibility.set(false).catch(() => {}); }
+function toggleComposer() {
+  if (composerVisibility.open && !composerWindow?.isMinimized()) hideComposer();
+  else void showComposer();
+}
 function setPetOrbit(expanded) {
   if (!petWindow || petWindow.isDestroyed()) return false;
   const bounds = petWindow.getBounds(), area = screen.getDisplayMatching(bounds).workArea;
@@ -57,8 +80,10 @@ function setPetOrbit(expanded) {
 async function showComposer() {
   if (quitting) return;
   setPetOrbit(false);
-  if (!composerWindow || composerWindow.isDestroyed()) await createComposer();
-  if (composerWindow.isMinimized()) composerWindow.restore();
+  await composerVisibility.set(true);
+}
+function prepareComposer(window) {
+  if (window.isMinimized()) window.restore();
   const anchor = petWindow?.getBounds() ?? { x: 300, y: 300, width: 256, height: 306 };
   const area = screen.getDisplayMatching(anchor).workArea;
   const width = Math.min(580, area.width-16), height = Math.min(730, area.height-16);
@@ -66,16 +91,16 @@ async function showComposer() {
   if (x < area.x) x = anchor.x + anchor.width + 14;
   x = Math.max(area.x + 8, Math.min(x, area.x + area.width - width - 8));
   const y = Math.max(area.y + 8, Math.min(anchor.y, area.y + area.height - height - 8));
-  composerWindow.setBounds({ x, y, width, height });
-  composerWindow.show(); composerWindow.focus();
-  composerWindow.webContents.send('pet:state', composerState());
-  composerWindow.webContents.send('composer:replies', engine?.replies?.snapshot() ?? { messages: [], unread: 0 });
-  composerWindow.webContents.focus();
-  composerWindow.webContents.send('composer:focus');
+  composerOrigin = { x: anchor.x + anchor.width/2 >= x + width/2 ? 100 : 0,
+    y: Math.max(8, Math.min(92, (anchor.y + 100 - y) / height * 100)) };
+  window.setBounds({ x, y, width, height });
+  window.show(); window.focus();
+  window.webContents.send('pet:state', composerState());
+  window.webContents.send('composer:replies', engine?.replies?.snapshot() ?? { messages: [], unread: 0 });
 }
 async function createComposer() {
   composerWindow = new BrowserWindow({ width: 580, height: 730, minWidth: 440, minHeight: 540, title: 'Muse 会话', frame: false,
-    backgroundColor: '#fcfcf6', resizable: true, show: false, alwaysOnTop: true,
+    transparent: true, backgroundColor: '#00000000', resizable: true, show: false, alwaysOnTop: true,
     webPreferences: { preload: path.join(__dirname, 'composer-preload.cjs'), partition: 'muse-local-composer',
       nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true },
   });
@@ -89,7 +114,7 @@ async function createComposer() {
   localSession.setPermissionRequestHandler((wc, permission, callback, details) =>
     callback(permission === 'media' && allowed(wc) && Array.isArray(details.mediaTypes) &&
       details.mediaTypes.length > 0 && details.mediaTypes.every(type => type === 'audio')));
-  composerWindow.on('close', event => { cancelVoice(); if (!quitting) { event.preventDefault(); composerWindow.hide(); } });
+  composerWindow.on('close', event => { if (!quitting) { event.preventDefault(); hideComposer(); } });
   composerWindow.on('minimize', cancelVoice);
   composerWindow.webContents.on('render-process-gone', cancelVoice);
   await composerWindow.loadFile(path.join(__dirname, 'composer.html'));
@@ -243,7 +268,7 @@ async function createWindows() {
   updateMenus();
   tray.on('double-click', showPet);
   if (!smoke) shortcutAvailable = globalShortcut.register(COMPOSER_SHORTCUT, () => {
-    if (composerWindow?.isVisible() && composerWindow.isFocused()) hideComposer(); else void showComposer();
+    toggleComposer();
   });
 
   if (smoke) return runSmoke();
@@ -265,6 +290,7 @@ async function createWindows() {
       },
       resetViews: () => {
         cancelVoice();
+        composerVisibility.reset();
         if (composerWindow && !composerWindow.isDestroyed()) composerWindow.destroy();
         composerWindow = null;
         petWindow?.webContents.send('pet:unread', 0);
@@ -334,8 +360,16 @@ async function runSmoke() {
     if (!Object.values(orbitChecks).every(Boolean)) throw new Error('orbit_not_rendered');
     if (composerWindow.isVisible()) throw new Error('dot_opened_chat');
     await petWindow.webContents.executeJavaScript('document.querySelector("#portrait").click()');
-    await new Promise(resolve => setTimeout(resolve, 250));
+    await new Promise(resolve => setTimeout(resolve, 350));
     if (!composerWindow.isVisible() || petOrbit) throw new Error('portrait_did_not_open_chat');
+    await composerWindow.webContents.executeJavaScript(`document.querySelector('#draft').value='retained local fixture'`);
+    await petWindow.webContents.executeJavaScript('document.querySelector("#portrait").click()');
+    await new Promise(resolve => setTimeout(resolve, 350));
+    if (composerWindow.isVisible()) throw new Error('second_click_did_not_hide_chat');
+    await petWindow.webContents.executeJavaScript('document.querySelector("#portrait").click()');
+    await new Promise(resolve => setTimeout(resolve, 350));
+    const preserved = await composerWindow.webContents.executeJavaScript(`document.querySelector('#draft').value==='retained local fixture' && getComputedStyle(document.querySelector('main')).opacity==='1'`);
+    if (!composerWindow.isVisible() || !preserved) throw new Error('reopen_lost_draft_or_animation');
     const composerChecks = await composerWindow.webContents.executeJavaScript(`(async () => {
       const draft=document.querySelector('#draft');
       const noInitialAudio=!document.querySelector('#recording').checkVisibility();
@@ -367,7 +401,7 @@ async function runSmoke() {
 ipcMain.handle('pet:get-state', event => isPet(event) ? currentState : null);
 ipcMain.on('pet:open-muse', event => { if (isPet(event)) showMuse(); });
 ipcMain.on('pet:hide', event => { if (isPet(event)) { setPetOrbit(false); petWindow.hide(); } });
-ipcMain.on('pet:compose', event => { if (isPet(event)) void showComposer(); });
+ipcMain.on('pet:compose', event => { if (isPet(event)) toggleComposer(); });
 ipcMain.handle('pet:orbit', (event, expanded) => isPet(event) && typeof expanded === 'boolean' ? setPetOrbit(expanded) : false);
 ipcMain.on('pet:account-menu', event => {
   if (isPet(event) && petWindow.isVisible() && petOrbit) Menu.buildFromTemplate(accountItems()).popup({ window: petWindow });
@@ -377,6 +411,7 @@ ipcMain.on('composer:account-menu', event => {
 });
 ipcMain.handle('composer:state', event => isComposer(event) ? composerState() : null);
 ipcMain.on('composer:hide', event => { if (isComposer(event)) hideComposer(); });
+ipcMain.on('composer:transition-done', (event, id) => { if (isComposer(event) && Number.isSafeInteger(id)) composerVisibility.complete(id); });
 ipcMain.handle('composer:replies', event => isComposer(event) ? engine?.replies?.snapshot() ?? { messages: [], unread: 0 } : null);
 ipcMain.handle('composer:refresh-replies', async event => isComposer(event) && nativeMode && !smoke && engine ? engine.refreshReplies() : { ok: false });
 ipcMain.on('composer:read-replies', event => { if (isComposer(event) && composerWindow.isVisible() && composerWindow.isFocused()) engine?.replies?.read(); });
@@ -458,6 +493,7 @@ else {
   app.on('before-quit', event => {
     if (quitting) return;
     quitting = true; clearInterval(timer); cancelVoice(); globalShortcut.unregisterAll(); tray?.destroy();
+    composerVisibility.reset();
     if (accounts || engine) { event.preventDefault(); void (accounts ? accounts.stop() : engine.stop()).then(() => app.exit(0), () => app.exit(1)); }
   });
 }

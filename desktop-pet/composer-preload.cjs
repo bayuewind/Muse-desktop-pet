@@ -5,6 +5,11 @@ contextBridge.exposeInMainWorld('composer', Object.freeze({
   send: draft => ipcRenderer.invoke('composer:send', draft),
   hide: () => ipcRenderer.send('composer:hide'),
   accountMenu: () => ipcRenderer.send('composer:account-menu'),
+  transitionDone: id => ipcRenderer.send('composer:transition-done', id),
+  onTransition: callback => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on('composer:transition', listener); return () => ipcRenderer.removeListener('composer:transition', listener);
+  },
   microphone: () => ipcRenderer.invoke('composer:microphone'),
   transcribe: audio => ipcRenderer.invoke('composer:transcribe', audio),
   replies: () => ipcRenderer.invoke('composer:replies'),
