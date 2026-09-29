@@ -4,6 +4,12 @@ contextBridge.exposeInMainWorld('composer', Object.freeze({
   state: () => ipcRenderer.invoke('composer:state'),
   workspace: () => ipcRenderer.invoke('composer:workspace'),
   refreshWorkspace: () => ipcRenderer.invoke('composer:refresh-workspace'),
+  spaces: () => ipcRenderer.invoke('composer:spaces'),
+  refreshSpaces: () => ipcRenderer.invoke('composer:refresh-spaces'),
+  onSpaces: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('composer:spaces', listener); return () => ipcRenderer.removeListener('composer:spaces', listener);
+  },
   preferences: () => ipcRenderer.invoke('composer:preferences'),
   setPreferences: patch => ipcRenderer.invoke('composer:set-preferences', patch),
   officialPage: key => ipcRenderer.invoke('composer:official-page', key),

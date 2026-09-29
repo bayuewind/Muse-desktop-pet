@@ -9,6 +9,7 @@ const { toDictationPCM } = require('./audio.cjs');
 const { ReplyStore } = require('./replies.cjs');
 const { readAttachment } = require('./attachments.cjs');
 const { WorkspaceModel } = require('./workspace.cjs');
+const { SpacesModel } = require('./spaces.cjs');
 class NativeSource extends EventEmitter {
   constructor(vault) {
     super(); this.vault = vault; this.state = new NativeStatus(); this.generation = 0;
@@ -20,10 +21,12 @@ class NativeSource extends EventEmitter {
     });
     this.assetCache = new Map(); this.assetCacheBytes = 0;
     this.workspace = new WorkspaceModel(); this.pollWorkspace = null;
+    this.spaces = new SpacesModel(); this.spacesRequest = null;
   }
   publish() {
     const view = this.state.view(); this.emit('state', view);
     this.emit('workspace', this.workspace.snapshot(this.state));
+    this.emit('spaces', this.spaces.snapshot(this.state));
     const log = JSON.stringify({ kind: view.kind, label: view.label, detail: view.detail, schedules: view.schedules, recentRuns: view.recentRuns });
     if (log !== this.lastLog) { this.lastLog = log; console.log(`NATIVE_STATE ${log}`); }
   }
@@ -44,6 +47,7 @@ class NativeSource extends EventEmitter {
     let pollBusy = false, pingBusy = false;
     let lastActivityAttempt = 0;
     this.workspace.reconnect();
+    this.spaces.reconnect();
     client.on('chat-event', (type, payload, meta) => {
       if (current()) {
         const context = { ...meta, epoch };
@@ -142,6 +146,26 @@ class NativeSource extends EventEmitter {
     if (!this.running || !this.client?.ready || this.client.closed || !this.pollWorkspace) return { ok: false };
     return this.pollWorkspace();
   }
+  async refreshSpaces() {
+    const client = this.client, generation = this.generation;
+    if (!this.running || !client?.ready || client.closed) return { ok: false };
+    if (this.spacesRequest?.client === client) return this.spacesRequest.promise;
+    const current = () => this.running && generation === this.generation && this.client === client && !client.closed;
+    const request = { client };
+    request.promise = Promise.all(['goals', 'ideas'].map(async kind => {
+      try {
+        const response = await client.request(`${kind}.list`, {});
+        if (!current()) return false;
+        this.spaces.update(kind, response);
+        return true;
+      } catch { if (current()) this.spaces.failed(kind); return false; }
+    })).then(results => {
+      if (current()) this.emit('spaces', this.spaces.snapshot(this.state));
+      return { ok: current() && results.every(Boolean) };
+    }).finally(() => { if (this.spacesRequest === request) this.spacesRequest = null; });
+    this.spacesRequest = request;
+    return request.promise;
+  }
   async refreshReplies() {
     const client = this.client, generation = this.generation;
     if (!client?.ready || client.closed) return { ok: false };
@@ -212,6 +236,7 @@ class NativeSource extends EventEmitter {
     for (const item of this.assetCache.values()) item.value.bytes.fill(0);
     this.assetCache.clear(); this.assetCacheBytes = 0;
     this.workspace.reset(); this.pollWorkspace = null;
+    this.spaces.reset(); this.spacesRequest = null;
     this.removeAllListeners();
   }
   async stop() {

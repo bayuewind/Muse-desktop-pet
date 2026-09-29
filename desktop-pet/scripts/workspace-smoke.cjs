@@ -37,6 +37,46 @@ async function runWorkspaceSmoke(window) {
   await send('pet:state', { mode: 'native', kind: 'working', label: '正在工作' });
   await send('composer:workspace', fixture);
   await send('composer:replies', { messages, unread: 1 });
+  const spaces = {
+    goals: { online: true, fresh: true, updatedAt: now, partial: true, rows: [
+      { id: 'g1', title: '建立每周学习节奏', summary: '复习英语与阅读笔记。', description: '保持可持续的学习安排。',
+        source: 'user_goal', status: 'active' },
+      { id: 'g2', title: '整理项目资料', summary: '归档已完成的内容。', source: 'assistant_tracking', status: 'completed' },
+    ] },
+    ideas: { online: true, fresh: true, updatedAt: now, partial: false, rows: [
+      { id: 'i1', title: '制作每日口语练习', summary: '从阅读笔记生成对话练习。', section: '学习与表达', status: 'new' },
+    ] },
+  };
+  await send('composer:spaces', spaces);
+  await click('#tab-spaces');
+  assert.equal(await execute('document.querySelectorAll("#spaces-list details").length'), 2, 'goal_rows_failed');
+  assert.match(await text('#spaces-scope'), /列表不完整/);
+  await input('#spaces-search', '学习');
+  assert.equal(await execute('document.querySelectorAll("#spaces-list details").length'), 1, 'goal_search_failed');
+  await input('#spaces-search', '');
+  await execute(`document.querySelector('#spaces-status').value='completed';document.querySelector('#spaces-status').dispatchEvent(new Event('change'))`);
+  assert.equal(await execute('document.querySelectorAll("#spaces-list details").length'), 1, 'goal_status_filter_failed');
+  await execute(`document.querySelector('#spaces-status').value='all';document.querySelector('#spaces-status').dispatchEvent(new Event('change'))`);
+  await click('#spaces-list summary');
+  await send('composer:spaces', spaces);
+  assert.equal(await execute('document.querySelector("#spaces-list details").open'), true, 'goal_refresh_closed_details');
+  await input('#draft', 'Preserve this draft');
+  await click('#spaces-list button');
+  assert.equal(await execute('document.body.dataset.view'), 'chat', 'goal_draft_navigation_failed');
+  assert.match(await execute('document.querySelector("#draft").value'), /^Preserve this draft\n\n/);
+  assert.match(await text('#feedback'), /尚未发送/);
+  await click('#tab-spaces');
+  await input('#draft', 'a'.repeat(7999));
+  await click('#spaces-list button');
+  assert.equal(await execute('document.querySelector("#draft").value.length'), 7999, 'overlong_context_mutated_draft');
+  assert.match(await text('#workspace-feedback'), /8000/);
+  await input('#draft', '');
+  await click('[data-space-kind="ideas"]');
+  assert.equal(await execute('document.querySelectorAll("#spaces-list details").length'), 1, 'idea_rows_failed');
+  await send('composer:spaces', { ...spaces, ideas: { ...spaces.ideas, fresh: false, failed: true } });
+  assert.match(await text('#spaces-warning'), /失败/);
+  await send('composer:spaces', spaces);
+  await click('[data-space-kind="goals"]');
   await click('#tab-tasks');
   assert.equal(await execute('document.querySelector("#panel-tasks").hidden'), false, 'task_tab_failed');
   assert.equal(await execute('document.querySelectorAll("#task-list .task-row").length'), 3, 'schedule_rows_failed');
@@ -105,12 +145,15 @@ async function runWorkspaceSmoke(window) {
   })()`);
   assert.deepEqual(cropDimensions, { width: 200, height: 100 }, 'wrong_cropped_pixels');
   await click('#capture');
-  await execute(`new Promise(resolve=>{function check(){if(document.querySelector('#capture-dialog').open)resolve();else requestAnimationFrame(check);}check();})`);
+  await execute(`new Promise((resolve,reject)=>{
+    const timeout=setTimeout(()=>reject(Error('capture_dialog_timeout')),5000);
+    function check(){if(document.querySelector('#capture-dialog').open){clearTimeout(timeout);resolve();}else requestAnimationFrame(check);}check();
+  })`);
   await click('#capture-cancel');
   assert.equal((await execute('window.composer.inputList()')).length, 2, 'cancel_staged_capture');
   for (const [width, height] of [[580, 730], [440, 540]]) {
     window.setBounds({ width, height });
-    for (const view of ['chat', 'tasks', 'library', 'settings']) {
+    for (const view of ['chat', 'tasks', 'spaces', 'library', 'settings']) {
       await click(`#tab-${view}`);
       const layout = await execute(`(() => {
         const panel=document.querySelector('#panel-${view}'), b=panel.getBoundingClientRect();
@@ -129,6 +172,12 @@ async function runWorkspaceSmoke(window) {
   await click('#tab-tasks');
   assert.equal(await execute('!!document.querySelector("#task-list img")'), false, 'unsafe_task_html');
   assert.match(await text('#task-list'), /<img/);
-  console.log('WORKSPACE_SMOKE_PASS: navigation, search, filters, fresh/stale, busy + approval, keyboard, drafts, inert content, external allowlist, local files, synthetic screenshot crop/cancel, 9 screenshots');
+  await send('composer:spaces', { ...spaces, goals: { ...spaces.goals, rows: [
+    { ...spaces.goals.rows[0], title: '<img src=x onerror=alert(1)>', summary: '<script>throw Error("unsafe")</script>' },
+  ] } });
+  await click('#tab-spaces');
+  assert.equal(await execute('!!document.querySelector("#spaces-list img, #spaces-list script")'), false, 'unsafe_goal_html');
+  assert.match(await text('#spaces-list'), /<img/);
+  console.log('WORKSPACE_SMOKE_PASS: navigation, search, filters, fresh/stale, goals/ideas, append-only drafts, inert content, keyboard, busy + approval, external allowlist, local files, synthetic screenshot crop/cancel, 11 screenshots');
 }
 module.exports = { runWorkspaceSmoke };

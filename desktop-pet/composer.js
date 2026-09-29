@@ -41,6 +41,17 @@ draft.addEventListener('input', () => { revision++; currentDraftId = crypto.rand
 document.addEventListener('composer:attachments-changed', () => { revision++; currentDraftId = crypto.randomUUID(); update(); });
 document.addEventListener('composer:input-busy', event => { attaching = event.detail; update(); });
 document.addEventListener('composer:input-note', event => note(event.detail.text, event.detail.level));
+window.museDraft = Object.freeze({
+  appendContext(text) {
+    if (sending || transcribing || requestingMic || recording || attaching) return { ok: false, reason: 'busy' };
+    if (typeof text !== 'string' || !text.trim()) return { ok: false, reason: 'invalid' };
+    const next = draft.value + (draft.value ? '\n\n' : '') + text;
+    if (next.length > 8000) return { ok: false, reason: 'length' };
+    draft.value = next; draft.dispatchEvent(new Event('input', { bubbles: true }));
+    note('已加入草稿，尚未发送。', 'success');
+    return { ok: true };
+  },
+});
 async function submit() {
   if (send.disabled) return;
   const text = draft.value, id = currentDraftId, atRevision = revision, key = draftKey();

@@ -76,6 +76,8 @@ h1 { font-size: 18px; line-height: 1.3; margin: 0 0 5px; font-weight: 600; }
 .segment-control { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; flex: 0 0 auto; }
 .segment-control button { font-size: 11px; padding: 6px 11px; border: 1px solid transparent; color: #667481; background: transparent; }
 .segment-control button[aria-pressed=true] { color: #245d6a; background: #e7eef3; border-color: #cddde7; }
+.spaces-filter { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 11px; color: #667481; flex-shrink: 0; }
+.spaces-filter select { min-width: 0; padding: 5px 8px; border: 1px solid #ced8de; border-radius: 5px; background: white; color: #435c68; font: inherit; }
 .task-row { border-bottom: 1px solid #e0e5ea; padding: 0; }
 .task-row summary { cursor: pointer; list-style: none; padding: 12px 2px; }
 .task-row summary::after { content: "+"; float: right; color: #76838d; margin-top: -18px; }

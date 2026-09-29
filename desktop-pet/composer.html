@@ -19,6 +19,7 @@
     <nav class="view-tabs" role="tablist" aria-label="工作区">
       <button id="tab-chat" role="tab" aria-selected="true" aria-controls="panel-chat" data-view="chat"><i data-lucide="message-circle"></i>聊天</button>
       <button id="tab-tasks" role="tab" aria-selected="false" aria-controls="panel-tasks" data-view="tasks" tabindex="-1"><i data-lucide="list-checks"></i>任务<span id="task-count" class="count-badge" hidden></span></button>
+      <button id="tab-spaces" role="tab" aria-selected="false" aria-controls="panel-spaces" data-view="spaces" tabindex="-1"><i data-lucide="target"></i>目标</button>
       <button id="tab-library" role="tab" aria-selected="false" aria-controls="panel-library" data-view="library" tabindex="-1"><i data-lucide="folder-open"></i>成果</button>
       <button id="tab-settings" class="settings-tab" role="tab" aria-selected="false" aria-controls="panel-settings" aria-label="桌面设置" title="桌面设置" data-view="settings" tabindex="-1"><i data-lucide="settings-2"></i></button>
     </nav>
@@ -49,6 +50,15 @@
       <div class="segment-control" role="group" aria-label="任务分类"><button data-task-filter="running" aria-pressed="false">进行中</button><button data-task-filter="schedules" aria-pressed="true">计划</button><button data-task-filter="runs" aria-pressed="false">运行记录</button><button data-task-filter="activities" aria-pressed="false">动态</button></div>
       <div id="task-list" class="panel-scroll" aria-label="任务列表"><p class="empty">等待同步</p></div>
       <div class="panel-bottom"><span id="task-scope">近期可观察记录</span><button data-official="chat" title="打开 Muse 官网"><i data-lucide="external-link"></i>Muse</button></div>
+    </section>
+    <section id="panel-spaces" class="view-panel" role="tabpanel" aria-labelledby="tab-spaces" hidden>
+      <div class="panel-heading"><div><h1 id="spaces-title">目标</h1><p id="spaces-updated">等待同步</p></div><button id="refresh-spaces" class="icon-button" title="刷新目标与灵感" aria-label="刷新目标与灵感"><i data-lucide="refresh-cw"></i></button></div>
+      <div id="spaces-warning" class="status-banner" role="status" hidden></div>
+      <div class="segment-control" role="group" aria-label="云端空间"><button data-space-kind="goals" aria-pressed="true">目标</button><button data-space-kind="ideas" aria-pressed="false">灵感</button></div>
+      <label class="search-field"><i data-lucide="search"></i><input id="spaces-search" type="search" placeholder="搜索目标与灵感" aria-label="搜索目标与灵感" maxlength="200"></label>
+      <label class="spaces-filter" for="spaces-status"><span>目标分类</span><select id="spaces-status"><option value="all">全部返回目标</option><option value="user_goal">我的目标</option><option value="assistant_tracking">Muse 跟进</option><option value="completed">已完成</option></select></label>
+      <div id="spaces-list" class="panel-scroll" aria-label="目标与灵感列表"><p class="empty">等待同步</p></div>
+      <div class="panel-bottom"><span id="spaces-scope">云端返回列表 · 非全量历史</span><button id="spaces-official">在 Muse 中查看<i data-lucide="external-link"></i></button></div>
     </section>
     <section id="panel-library" class="view-panel" role="tabpanel" aria-labelledby="tab-library" hidden>
       <div class="panel-heading"><div><h1>近期成果</h1><p id="library-count">当前会话 · 0 个附件</p></div><button data-official="library" class="icon-button" title="打开云端资源库" aria-label="打开云端资源库"><i data-lucide="external-link"></i></button></div>

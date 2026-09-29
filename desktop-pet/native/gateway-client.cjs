@@ -10,6 +10,9 @@ const { validateChatPayload } = require('./chat-input.cjs');
 const ROUTES = Object.freeze({
   'connection.ping': ['POST', '/api/ping'],
   'activity.list': ['GET', '/activity'],
+  'goals.list': ['GET', '/goals'],
+  'ideas.list': ['GET', '/api/idea-cards'],
+  'sessions.list': ['GET', '/api/session/list'],
   'tasks.list': ['GET', '/tasks'],
   'tasks.runs': ['GET', '/tasks/runs'],
   'subagents.status': ['GET', '/subagents/status'],

@@ -16,6 +16,8 @@
     waiting_for_user: '等待回应', out_of_credits: '用量不足', online: '在线' };
   let workspace = null, replies = { messages: [] }, taskFilter = 'schedules', libraryFilter = 'all';
   let taskSignature = '', librarySignature = '', prefs = null, feedbackTimer;
+  let spaces = null, spaceKind = 'goals', spacesBusy = false, spacesSignature = '';
+  const expandedSpaces = new Set();
   const expanded = new Set();
   function formatTime(value) {
     if (!Number.isFinite(value)) return '时间未知';
@@ -27,7 +29,7 @@
     feedbackTimer = setTimeout(() => { $('#workspace-feedback').hidden = true; }, 6000);
   }
   function selectView(view, focus = false) {
-    if (!['chat', 'tasks', 'library', 'settings'].includes(view)) return;
+    if (!['chat', 'tasks', 'spaces', 'library', 'settings'].includes(view)) return;
     const changed = document.body.dataset.view !== view;
     document.body.dataset.view = view;
     for (const tab of all('[role=tab]')) {
@@ -40,6 +42,10 @@
     if (view === 'tasks') renderWorkspace();
     if (view === 'library') renderLibrary();
     if (view === 'settings') renderPreferences();
+    if (view === 'spaces') {
+      renderSpaces();
+      if (changed && !spaces?.[spaceKind]?.fresh) void refreshSpaces();
+    }
   }
   for (const tab of all('[role=tab]')) {
     tab.onclick = () => selectView(tab.dataset.view);
@@ -140,6 +146,73 @@
     } catch { showFeedback('同步失败，请稍后重试'); }
     finally { button.disabled = false; }
   };
+  function renderSpaces() {
+    const state = spaces?.[spaceKind];
+    $('#spaces-title').textContent = spaceKind === 'goals' ? '目标' : '灵感';
+    $('#spaces-status').parentElement.hidden = spaceKind !== 'goals';
+    $('#spaces-updated').textContent = state?.updatedAt ? `更新于 ${formatTime(state.updatedAt)}` : '尚未同步';
+    $('#spaces-warning').hidden = !!state?.fresh;
+    $('#spaces-warning').textContent = spacesBusy ? '正在同步…' : !state?.online ? '连接未就绪，以下内容可能已过期。'
+      : state.failed ? '本次同步失败，保留上次结果。' : '内容待同步，以下记录可能已过期。';
+    $('#spaces-scope').textContent = `${state?.rows.length ?? 0} 项已载入${state?.partial ? ' · 列表不完整' : ''} · 非全量历史`;
+    const query = $('#spaces-search').value.trim().toLocaleLowerCase(), filter = $('#spaces-status').value;
+    const entries = (state?.rows ?? []).filter(row =>
+      (spaceKind !== 'goals' || filter === 'all' || (filter === 'completed' ? row.status === 'completed' : row.source === filter)) &&
+      [row.title, row.summary, row.description, row.section].some(value => value?.toLocaleLowerCase().includes(query)));
+    const signature = JSON.stringify([spaceKind, query, filter, entries, state?.updatedAt]);
+    if (signature === spacesSignature) return;
+    spacesSignature = signature;
+    const list = $('#spaces-list'); list.replaceChildren();
+    if (!entries.length) list.append(node('p', query || filter !== 'all' && spaceKind === 'goals' ? '没有匹配的内容'
+      : state?.updatedAt ? '暂无返回内容' : '等待同步', 'empty'));
+    for (const item of entries) {
+      const kind = spaceKind, key = `${kind}:${item.id}`;
+      const details = node('details', null, 'task-row');
+      details.open = expandedSpaces.has(key);
+      details.addEventListener('toggle', () => {
+        if (details.isConnected) { if (details.open) expandedSpaces.add(key); else expandedSpaces.delete(key); }
+      });
+      const head = node('summary'), label = node('div', null, 'task-label');
+      label.append(node('strong', item.title));
+      if (kind === 'goals') {
+        const status = { active: '进行中', in_progress: '进行中', completed: '已完成', paused: '已暂停', archived: '已归档' };
+        label.append(node('span', status[item.status] || '状态未识别', 'status-pill'));
+      }
+      head.append(label, node('small', kind === 'ideas' ? item.section || '灵感'
+        : item.source === 'user_goal' ? '我的目标' : item.source === 'assistant_tracking' ? 'Muse 跟进' : '目标'));
+      details.append(head);
+      const content = node('div', null, 'task-detail');
+      for (const value of [item.summary, item.description, item.prerequisite].filter(Boolean)) content.append(node('p', value));
+      if (!content.childElementCount) content.append(node('p', '暂无更多详情'));
+      const discuss = node('button', '加入聊天草稿', 'text-button');
+      discuss.onclick = () => {
+        const context = [kind === 'goals' ? '我想讨论这个目标：' : '我想讨论这个灵感：',
+          item.title, item.summary || item.description].filter(Boolean).join('\n');
+        const result = window.museDraft.appendContext(context);
+        if (result.ok) selectView('chat', true);
+        else showFeedback(result.reason === 'length' ? '加入后会超过 8000 字，原草稿未改动。' : '请等待当前输入或发送结束，原草稿未改动。');
+      };
+      content.append(discuss); details.append(content); list.append(details);
+    }
+  }
+  async function refreshSpaces() {
+    if (spacesBusy) return;
+    spacesBusy = true; $('#refresh-spaces').disabled = true; renderSpaces();
+    try {
+      const result = await window.composer.refreshSpaces();
+      if (!result?.ok) showFeedback('部分内容未能同步，请检查连接或稍后重试。');
+    } catch { showFeedback('目标与灵感同步失败。'); }
+    finally { spacesBusy = false; $('#refresh-spaces').disabled = false; renderSpaces(); }
+  }
+  for (const button of all('[data-space-kind]')) button.onclick = () => {
+    spaceKind = button.dataset.spaceKind;
+    for (const item of all('[data-space-kind]')) item.setAttribute('aria-pressed', String(item === button));
+    renderSpaces();
+  };
+  $('#spaces-search').oninput = renderSpaces;
+  $('#spaces-status').onchange = renderSpaces;
+  $('#refresh-spaces').onclick = refreshSpaces;
+  $('#spaces-official').onclick = () => openOfficial(spaceKind);
   function renderLibrary() {
     const assets = replies.messages.flatMap(message => message.attachments.map(asset => ({ message, asset }))).reverse();
     $('#library-count').textContent = `当前会话 · ${assets.length} 个附件`;
@@ -190,9 +263,12 @@
   function receiveWorkspace(value) { if (value) { workspace = value; renderWorkspace(); } }
   function receiveReplies(value) { if (value) { replies = value; renderLibrary(); } }
   window.composer.onWorkspace(receiveWorkspace);
+  function receiveSpaces(value) { if (value) { spaces = value; renderSpaces(); } }
+  window.composer.onSpaces(receiveSpaces);
   window.composer.onReplies(receiveReplies);
   window.composer.onView(view => selectView(view));
   void window.composer.workspace().then(receiveWorkspace);
+  void window.composer.spaces().then(receiveSpaces);
   void window.composer.replies().then(receiveReplies);
   void window.composer.preferences().then(value => { prefs = value; renderPreferences(); });
   window.lucide.createIcons();

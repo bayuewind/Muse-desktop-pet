@@ -26,9 +26,19 @@ app.whenReady().then(async () => {
   });
   await source.start();
   await ready;
-  for (const method of ['tasks.list', 'tasks.runs', 'subagents.list', 'activity.list']) {
+  const methods = process.argv.includes('--spaces') ? ['goals.list', 'ideas.list', 'sessions.list']
+    : ['tasks.list', 'tasks.runs', 'subagents.list', 'activity.list'];
+  for (const method of methods) {
     const response = await source.client.request(method, method === 'tasks.runs' ? { limit: 10 } : {});
     console.log(JSON.stringify({ method, shape: shape(response) }));
+  }
+  if (process.argv.includes('--spaces')) {
+    const result = await source.refreshSpaces();
+    const snapshot = source.spaces.snapshot(source.state);
+    if (!result.ok || !snapshot.goals.fresh || !snapshot.ideas.fresh) throw new Error('spaces_integration_failed');
+    console.log(JSON.stringify({ step: 'normalized_spaces_verified', goals: snapshot.goals.rows.length,
+      ideas: snapshot.ideas.rows.length, goalsFresh: snapshot.goals.fresh, ideasFresh: snapshot.ideas.fresh,
+      goalsPartial: snapshot.goals.partial, ideasPartial: snapshot.ideas.partial }));
   }
   await source.stop();
   app.exit(0);

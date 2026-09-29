@@ -11,6 +11,7 @@ const { deriveState } = require('./state.cjs');
 const { NotificationPolicy } = require('./notifications.cjs');
 const { Preferences } = require('./preferences.cjs');
 const { WorkspaceModel } = require('./native/workspace.cjs');
+const { SpacesModel } = require('./native/spaces.cjs');
 const { InputAttachments } = require('./input-attachments.cjs');
 const inputAttachments = new InputAttachments();
 let activeSubmission = null;
@@ -56,8 +57,9 @@ function isComposer(event) {
 }
 function composerState() { return { ...currentState, shortcutAvailable }; }
 function workspaceSnapshot() { return engine?.workspace?.snapshot(engine.state) ?? new WorkspaceModel().snapshot(); }
+function spacesSnapshot() { return engine?.spaces?.snapshot(engine.state) ?? new SpacesModel().snapshot(); }
 async function showWorkspace(view = 'chat') {
-  if (!['chat', 'tasks', 'library', 'settings'].includes(view)) return;
+  if (!['chat', 'tasks', 'spaces', 'library', 'settings'].includes(view)) return;
   await showComposer();
   if (composerWindow && !composerWindow.isDestroyed()) composerWindow.webContents.send('composer:view', view);
 }
@@ -145,6 +147,7 @@ function prepareComposer(window) {
   window.webContents.send('pet:state', composerState());
   window.webContents.send('composer:replies', engine?.replies?.snapshot() ?? { messages: [], unread: 0 });
   window.webContents.send('composer:workspace', workspaceSnapshot());
+  window.webContents.send('composer:spaces', spacesSnapshot());
 }
 async function createComposer() {
   composerWindow = new BrowserWindow({ width: 580, height: 730, minWidth: 440, minHeight: 540, title: 'Muse 会话', frame: false,
@@ -349,6 +352,10 @@ async function createWindows() {
           notifyWorkspace(snapshot);
           if (composerWindow && !composerWindow.isDestroyed()) composerWindow.webContents.send('composer:workspace', snapshot);
         });
+        source.on('spaces', snapshot => {
+          if (quitting || accounts.source !== source) return;
+          if (composerWindow && !composerWindow.isDestroyed()) composerWindow.webContents.send('composer:spaces', snapshot);
+        });
         return source;
       },
       resetViews: () => {
@@ -523,6 +530,10 @@ ipcMain.on('composer:account-menu', event => {
 });
 ipcMain.handle('composer:state', event => isComposer(event) ? composerState() : null);
 ipcMain.handle('composer:workspace', event => isComposer(event) ? workspaceSnapshot() : null);
+ipcMain.handle('composer:spaces', event => isComposer(event) ? spacesSnapshot() : null);
+ipcMain.handle('composer:refresh-spaces', event =>
+  isComposer(event) && composerWindow.isVisible() && nativeMode && !smoke && engine
+    ? engine.refreshSpaces() : { ok: false });
 ipcMain.handle('composer:refresh-workspace', event =>
   isComposer(event) && composerWindow.isVisible() && nativeMode && !smoke && engine
     ? engine.refreshWorkspace() : { ok: false });
