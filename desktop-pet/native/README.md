@@ -12,6 +12,12 @@
 - `monitor.cjs`：浏览器无关 CLI、重连退避、保活、脱敏状态输出。
 - `outgoing.cjs` / `audio.cjs`：文字投递去重、明确确认与未知结果处理、24k PCM 转换及语音最终转写解析。任务和音频不写入日志或本地文件。
 - `replies.cjs` / `attachments.cjs`：主会话回复合并、事件去重、历史与实时竞态处理；从真实 presentation 提取附件，通过原生 `fs.stat` / `fs.read` 按需读取。只允许工作区路径与已登记附件，校验文件长度和媒体格式。UI 将全部正文与代码按文本处理，不执行；文件需手动保存，音频需手动播放。具体容量和格式限制见上级 README。
+- `workspace.cjs` / `spaces.cjs`：将任务、活动、目标、灵感转换成有界的原生界面模型，独立标明同步失败和不完整列表。
+- `conversations.cjs` / `thread-chat.cjs`：已存在旁聊的独立连接；通过只读 `sessions.get` 核对身份后订阅/发送。
+  每次发送携带固定 `session_id`，历史、消息、附件和选择代际隔离。退出旁聊不会停止云端任务。
+  主连接继续监控，当前未同时订阅全部旁聊。当前真实账号无旁聊，隔离行为通过合成测试验证，仍需真实验收。
+- `chat-input.cjs`：官方 inline image/file/text 合同，4 个附件/8 MB 总量，无通用云端写入入口。
+  本地截图/文件只有用户确认发送后才交给 Muse。大文件上传、原生审批和任务修改未实现。
 
 文字协议参考当前公开客户端 `14hyzlnci3o9o.js` 的 `chat.stream`（`message`、`capabilities` 与返回 `message_id`）；语音协议参考 `3qxdrzta9l34d.js` 的 `/api/voice/dictation?sample_rate_hz=24000`，使用独立 Noise 流、PCM16 LE、BodyChunk 和 `partial/final/error` 记录。已在用户授权下真实发送一次限定测试并收到文字、代码、PNG、WAV；尚未测试实际麦克风和语音转写。
 

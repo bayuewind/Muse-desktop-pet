@@ -228,6 +228,11 @@ async function runWorkspaceSmoke(window) {
     window.setBounds({ width, height });
     for (const view of ['chat', 'tasks', 'spaces', 'library', 'settings']) {
       await click(`#tab-${view}`);
+      if (view === 'chat' || view === 'library') {
+        await send('composer:replies', { messages, unread: 0 });
+        await execute(`document.querySelector('#replies').scrollTop=0`);
+      }
+      await execute(`document.querySelector('#workspace-feedback').hidden=true`);
       const layout = await execute(`(() => {
         const panel=document.querySelector('#panel-${view}'), b=panel.getBoundingClientRect();
         const visible=[...panel.querySelectorAll('button,input,textarea,select')].filter(e=>e.checkVisibility());

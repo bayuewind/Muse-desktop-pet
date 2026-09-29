@@ -59,6 +59,9 @@
 
 ## 不只是一张会动的头像
 
+**本地开发版 0.2.0** 新增任务中心、近期成果、目标/灵感、文件与裁切截图、提醒设置和已有旁聊隔离。
+它尚未发布到 GitHub，下面的下载链接仍为 0.1.1；新功能、测试范围和本地验收步骤见 [0.2.0 说明](docs/releases/v0.2.0.md)。
+
 | 功能 | 桌宠里的体验 |
 | --- | --- |
 | 桌面陪伴 | 悬浮小人、状态动画、未读回复提示，以及统一的小人程序 / 托盘图标。 |
@@ -166,6 +169,7 @@ npm start
 ~~~sh
 npm test                          # 单元测试
 npm run smoke                     # 本地窗口、隔离与运行依赖检查
+npm run smoke:workspace           # 工作区、会话隔离、截图裁切与静音音频检查
 npm run smoke:browser             # Chrome 专用可见窗口检查
 npm run smoke:browser -- --edge    # Edge 专用可见窗口检查
 npm run dist:win                  # 生成 Windows x64 安装包

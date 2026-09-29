@@ -61,6 +61,10 @@ Drag the small bar above the character to move it. Click the character to open o
 
 ## More than an animated avatar
 
+**Local development build 0.2.0** adds a task center, recent results, goals and ideas, file and cropped-screenshot input,
+notification preferences, and isolated existing thread chats. It has not been published to GitHub; download links below
+still refer to 0.1.1. See the [0.2.0 acceptance notes](docs/releases/v0.2.0.md) (Chinese) for verified scope and remaining live checks.
+
 | Feature | What you get |
 | --- | --- |
 | Desktop companion | A floating character, activity animations, unread-reply indicators, and matching application / tray icons. |
