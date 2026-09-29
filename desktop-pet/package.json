@@ -2,6 +2,7 @@
   "name": "muse-desktop-pet",
   "version": "0.1.1",
   "private": true,
+  "license": "MIT",
   "description": "Local-only Muse desktop companion with an isolated login session",
   "author": "bayuewind",
   "homepage": "https://github.com/bayuewind/Muse-desktop-pet",

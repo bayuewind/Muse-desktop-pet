@@ -5,6 +5,7 @@
   "executableName": "MuseDesktopPet",
   "asar": true,
   "asarUnpack": ["assets/*.ico"],
+  "extraFiles": [{ "from": "../LICENSE", "to": "LICENSE-Muse.txt" }],
   "npmRebuild": false,
   "electronDist": "node_modules/electron/dist",
   "directories": { "output": "dist", "buildResources": "build" },

@@ -25,7 +25,7 @@ npm start -- --native
 
 普通用户可从 [v0.1.1 Releases](https://github.com/bayuewind/Muse-desktop-pet/releases/tag/v0.1.1) 下载自带运行环境的 EXE。当前为未签名测试版；安装完成页支持勾选桌面快捷方式，程序及托盘图标复用小人头像。
 
-源码运行步骤见下文。自行打包请参阅[仓库首页的构建说明](../README.md#构建-windows-安装包)，运行 `npm run dist:win` 后执行 `npm run verify:win`。本地构建命令不会自动发布到 GitHub。
+源码运行步骤见下文。自行打包请参阅[仓库首页的开发与构建说明](../README.md#development)，运行 `npm run dist:win` 后执行 `npm run verify:win`。本地构建命令不会自动发布到 GitHub。
 
 需要 Node.js 22.12+；首次登录使用 Google Chrome 或 Microsoft Edge。双击 `启动桌宠-Windows.cmd`，或在 PowerShell 中运行：
 
