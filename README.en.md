@@ -145,6 +145,18 @@ The × button **hides** the companion. To exit completely, use **Quit companion*
 
 Local authorization is stored under `%APPDATA%\MuseDesktopPet` on Windows and `~/Library/Application Support/MuseDesktopPet` on macOS. **Never upload these directories, cookies, or tokens to an issue.** Muse's server-side data handling is governed by its official policies. This companion is not an entirely offline application.
 
+<a id="server-bridge"></a>
+
+## Experimental: server bridge and AI Passport
+
+[`server/`](server/README.md) runs the pet's native Muse connection as a headless Docker service
+and pushes the task state to the Muse avatar on a [FoloToy AI Passport](https://github.com/FoloToy/ai-passport)
+(device firmware: branch `feature/muse-avatar` of [`bayuewind/folo-ai-passport-xiaozhi`](https://github.com/bayuewind/folo-ai-passport-xiaozhi/tree/feature/muse-avatar)).
+
+- Reuses `desktop-pet/native` without a browser; the session is AES-256-GCM encrypted in `server/data/` with the key in `server/.env`, neither of which enters Git or the image.
+- Log in once on the Mac with a fresh temporary browser profile (independent from the pet's own session), then `docker compose -f server/docker-compose.yml up -d`.
+- Verified so far with local Docker and the browser simulator: when a scheduled Muse task starts or ends, the avatar switches to "working" / "idle" within about a second. Not yet verified on hardware or a cloud host.
+
 <a id="development"></a>
 
 ## Development and validation

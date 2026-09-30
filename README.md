@@ -143,6 +143,18 @@
 
 本机授权目录：Windows 为 `%APPDATA%\MuseDesktopPet`；macOS 为 `~/Library/Application Support/MuseDesktopPet`。**请勿把这些目录、Cookie 或令牌上传到 Issues。** Muse 服务端的数据处理以其官方政策为准，桌宠并不是完全离线的软件。
 
+<a id="server-bridge"></a>
+
+## 实验性：服务端桥接与 AI Passport
+
+[`server/`](server/README.md) 把桌宠的原生 Muse 连接搬到无界面的 Docker 服务里常驻运行，
+并把任务状态推送给 [FoloToy AI Passport](https://github.com/FoloToy/ai-passport) 屏幕上的 Muse 小人
+（设备固件见 [`bayuewind/folo-ai-passport-xiaozhi`](https://github.com/bayuewind/folo-ai-passport-xiaozhi/tree/feature/muse-avatar) 的 `feature/muse-avatar` 分支）。
+
+- 复用 `desktop-pet/native` 的连接代码，不启动浏览器；凭据用 AES-256-GCM 加密保存在 `server/data/`，密钥在 `server/.env`，两者都不进 Git 和镜像。
+- 首次在 Mac 上用独立的临时浏览器资料登录一次（与桌宠自己的会话互不影响），之后 `docker compose -f server/docker-compose.yml up -d`。
+- 目前在本机 Docker + 浏览器模拟器中验证：Muse 定时任务开始 / 结束时，设备小人约 1 秒内切换到“正在工作 / 空闲中”。尚未在真机和云主机上验证。
+
 <a id="development"></a>
 
 ## 开发与验证

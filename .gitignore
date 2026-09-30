@@ -4,3 +4,7 @@ node_modules/
 .secrets.json
 backups/
 dist/
+
+# Muse bridge credentials: encrypted session and its key, never commit
+server/data/
+server/.env

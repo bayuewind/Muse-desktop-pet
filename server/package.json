@@ -1,0 +1,20 @@
+{
+  "name": "muse-passport-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Headless Muse status bridge that pushes avatar states to AI Passport",
+  "license": "MIT",
+  "scripts": {
+    "start": "node bridge.cjs",
+    "test": "node --test \"test/*.test.cjs\"",
+    "pair": "node pair-for-server.cjs --approved-session-export"
+  },
+  "dependencies": {
+    "protobufjs": "8.8.0",
+    "tough-cookie": "6.0.2",
+    "ws": "8.22.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

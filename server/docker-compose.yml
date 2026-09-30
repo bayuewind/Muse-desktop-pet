@@ -1,0 +1,19 @@
+# Local deployment of the Muse → AI Passport bridge.
+#   docker compose -f server/docker-compose.yml up -d --build
+# Pair first (on the Mac): node server/pair-for-server.cjs --approved-session-export
+services:
+  muse-bridge:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: muse-passport-bridge:local
+    env_file:
+      - path: .env          # MUSE_VAULT_KEY, written by pair-for-server.cjs
+        required: false     # before pairing the bridge reports authorization_required
+    environment:
+      DEVICE_GATEWAY_URL: ${DEVICE_GATEWAY_URL:-http://host.docker.internal:8003}
+    volumes:
+      - ./data:/data        # encrypted session; renewal writes it back
+    ports:
+      - "127.0.0.1:${BRIDGE_PORT:-18787}:8787"   # 8787 is often taken on the host
+    restart: unless-stopped
