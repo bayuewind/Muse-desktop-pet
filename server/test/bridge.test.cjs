@@ -105,3 +105,23 @@ test('pusher retries after gateway failures without losing the latest state', as
   assert.deepEqual(gw.calls.at(-1), { state: 'approval' });
   assert.equal(pusher.snapshot().lastError, null);
 });
+
+test('detail line: elapsed working time, sub-tasks, next scheduled run', () => {
+  const { detailFor } = require('../state-map.cjs');
+  const now = Date.UTC(2026, 8, 30, 6, 0, 0);
+  assert.equal(detailFor({ state: 'working' }, {}, { now, workingSince: now - 20_000 }), '刚开始');
+  assert.equal(detailFor({ state: 'working', subagents: 2 }, {}, { now, workingSince: now - 3.5 * 60_000 }),
+    '已 3 分钟 · 2 个子任务');
+  assert.equal(detailFor({ state: 'default' }, { nextRunInSeconds: 3600 }, { now, timeZone: 'Asia/Shanghai' }),
+    '下个任务 15:00');
+  assert.equal(detailFor({ state: 'default' }, { nextRunInSeconds: 3 * 24 * 3600 }, { now }), '');
+  assert.equal(detailFor({ state: 'approval' }, {}, { now }), '');
+});
+
+test('pusher treats a changed detail line as a new state', async () => {
+  const gw = fakeGateway();
+  const pusher = new DevicePusher({ gatewayUrl: 'http://gw', fetchImpl: gw.fetchImpl });
+  await pusher.update({ state: 'working', detail: '刚开始' });
+  await pusher.update({ state: 'working', detail: '已 1 分钟' });
+  assert.deepEqual(gw.calls.map(c => c.detail), ['刚开始', '已 1 分钟']);
+});

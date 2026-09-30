@@ -48,6 +48,7 @@ class DevicePusher {
     const url = new URL(`${this.gatewayUrl}/avatar`);
     url.searchParams.set('state', target.state);
     if (target.subagents) url.searchParams.set('subagents', String(target.subagents));
+    if (target.detail) url.searchParams.set('detail', target.detail);
     try {
       const response = await this.fetchImpl(url, { signal: AbortSignal.timeout(this.timeoutMs) });
       if (!response.ok) throw new Error(`gateway_http_${response.status}`);
@@ -55,7 +56,7 @@ class DevicePusher {
       const changed = !this.lastSent || !sameState(this.lastSent, target);
       this.lastSent = target; this.lastSentAt = this.now(); this.lastError = null;
       if (changed) this.log({ step: 'device_state_pushed', state: target.state, subagents: target.subagents ?? 0,
-        reason: target.reason, devices: { ws: body.ws ?? null, mqtt: body.mqtt ?? null } });
+        detail: target.detail ?? '', reason: target.reason, devices: { ws: body.ws ?? null, mqtt: body.mqtt ?? null } });
       return true;
     } catch (error) {
       const message = error?.name === 'TimeoutError' ? 'gateway_timeout' : String(error?.message ?? error);
@@ -72,7 +73,7 @@ class DevicePusher {
 }
 
 function sameState(a, b) {
-  return a?.state === b?.state && (a?.subagents ?? 0) === (b?.subagents ?? 0);
+  return a?.state === b?.state && (a?.subagents ?? 0) === (b?.subagents ?? 0) && (a?.detail ?? '') === (b?.detail ?? '');
 }
 
 module.exports = { DevicePusher };

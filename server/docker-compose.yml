@@ -12,6 +12,7 @@ services:
         required: false     # before pairing the bridge reports authorization_required
     environment:
       DEVICE_GATEWAY_URL: ${DEVICE_GATEWAY_URL:-http://host.docker.internal:8003}
+      TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - ./data:/data        # encrypted session; renewal writes it back
     ports:
