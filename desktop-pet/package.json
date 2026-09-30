@@ -1,6 +1,6 @@
 {
   "name": "muse-desktop-pet",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "private": true,
   "license": "MIT",
   "description": "Local-only Muse desktop companion with an isolated login session",
@@ -21,6 +21,7 @@
     "test": "node --test test/*.test.cjs",
     "smoke": "electron . --smoke-test",
     "smoke:workspace": "electron . --smoke-test --workspace-test",
+    "smoke:avatar": "electron . --smoke-test --avatar-test",
     "smoke:browser": "node scripts/browser-smoke.cjs",
     "pack:win": "electron-builder --win --x64 --dir --publish never",
     "dist:win": "electron-builder --win nsis --x64 --publish never",
@@ -32,11 +33,13 @@
     "electron-builder": "26.15.3"
   },
   "dependencies": {
+    "https-proxy-agent": "7.0.6",
     "lucide": "1.48.0",
     "protobufjs": "8.8.0",
     "puppeteer-core": "25.12.0",
     "tough-cookie": "6.0.2",
-    "ws": "8.22.0"
+    "ws": "8.22.0",
+    "socks-proxy-agent": "8.0.5"
   },
   "engines": {
     "node": ">=22.12.0"

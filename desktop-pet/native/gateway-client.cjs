@@ -8,6 +8,8 @@ const { SubscriptionDecoder } = require('./subscription.cjs');
 const { DictationDecoder, RATE, MAX_SECONDS } = require('./audio.cjs');
 const { validateChatPayload } = require('./chat-input.cjs');
 const { sessionId } = require('./conversations.cjs');
+const { networkCode } = require('../diagnostics.cjs');
+const { gatewayConnection, networkEvent } = require('../system-network.cjs');
 const ROUTES = Object.freeze({
   'connection.ping': ['POST', '/api/ping'],
   'activity.list': ['GET', '/activity'],
@@ -76,20 +78,31 @@ function pinnedStandardVerifier(policy) {
   };
 }
 class NativeGateway extends EventEmitter {
-  constructor() {
+  constructor({ connection = gatewayConnection } = {}) {
     super(); this.socket = null; this.wire = null; this.pending = new Map();
+    this.connection = connection; this.connecting = false; this.proxyAbort = new AbortController();
     this.inbox = []; this.waiter = null; this.closed = false; this.ready = false;
   }
   async connect(credentials, verifyPeer) {
     if (typeof verifyPeer !== 'function') throw new Error('peer_verifier_required');
-    if (this.socket) throw new Error('already_started');
+    if (this.socket || this.connecting) throw new Error('already_started');
+    if (this.closed) throw new Error('gateway_closed');
     const url = gatewayURL(credentials);
+    this.connecting = true;
+    let selected;
+    try { selected = await this.connection(url, this.proxyAbort.signal); }
+    catch (error) { this.close('proxy_resolution_failed'); throw error; }
+    const { agent, route } = selected;
+    if (this.closed) { agent?.destroy(); throw new Error('gateway_closed'); }
+    this.proxyAgent = agent;
     const ws = new WebSocket(url, { origin: 'https://muse.ai',
-      handshakeTimeout: 12000, maxPayload: 4 * 1024 * 1024, followRedirects: false });
+      agent, handshakeTimeout: 12000, maxPayload: 4 * 1024 * 1024, followRedirects: false });
     this.socket = ws;
-    ws.on('error', () => this.close('gateway_transport_failed'));
+    let transportCode, rejectionStatus;
+    ws.on('error', error => { transportCode = networkCode(error); this.close('gateway_transport_failed'); });
     ws.on('close', () => this.close('gateway_closed'));
     ws.on('unexpected-response', (_request, response) => {
+      rejectionStatus = response.statusCode;
       response.resume(); this.close([401, 403].includes(response.statusCode) ? 'authorization_required' : 'gateway_rejected');
     });
     ws.on('message', (data, binary) => {
@@ -114,6 +127,7 @@ class NativeGateway extends EventEmitter {
         const finish = error => { clearTimeout(timer); this.removeListener('closed', disconnected); ws.removeListener('open', opened); error ? reject(error) : resolve(); };
         this.once('closed', disconnected); ws.once('open', opened);
       });
+      networkEvent({ stage: 'network_request', status: 'passed', transport: 'wss', route });
       const clientNonce = randomBytes(32);
       ws.send(handshake.writeMessage1(encode('ClientNonce', { nonce: clientNonce })));
       const remote = handshake.readMessage2(await this.nextHandshake());
@@ -133,8 +147,14 @@ class NativeGateway extends EventEmitter {
     } catch (error) {
       handshake.destroy(); this.close('handshake_failed');
       // Never forward a ws Error/URL containing the token to a caller/logger.
-      const allowed = new Set(['server_identity_mismatch', 'attestation_verifier_required', 'authorization_required', 'verified_peer_policy_required']);
+      const allowed = new Set(['server_identity_mismatch', 'attestation_verifier_required', 'authorization_required', 'verified_peer_policy_required',
+        'gateway_transport_failed', 'gateway_closed', 'gateway_rejected', 'gateway_open_timeout', 'handshake_timeout',
+        'peer_verification_timeout', 'peer_verification_failed', 'gateway_protocol_error']);
       const safe = new Error(allowed.has(error.message) ? error.message : 'handshake_failed');
+      safe.networkCode = transportCode;
+      if (Number.isInteger(rejectionStatus) && rejectionStatus >= 100 && rejectionStatus <= 599) safe.httpStatus = rejectionStatus;
+      networkEvent({ stage: 'network_request', status: 'failed', transport: 'wss', route,
+        code: safe.message, networkCode: safe.networkCode, httpStatus: safe.httpStatus });
       if (safe.message === 'server_identity_mismatch' && /^[a-f0-9]{64}$/.test(error.candidateKeyHex ?? '')) safe.candidateKeyHex = error.candidateKeyHex;
       throw safe;
     }
@@ -280,6 +300,7 @@ class NativeGateway extends EventEmitter {
   close(reason = 'client_closed') {
     if (this.closed) return;
     this.closed = true; this.ready = false;
+    this.proxyAbort.abort(); this.proxyAgent?.destroy();
     this.waiter?.reject(new Error(reason)); this.waiter = null; this.inbox = [];
     for (const entry of this.pending.values()) { clearTimeout(entry.timer); entry.reject(new Error(reason)); }
     this.pending.clear(); this.wire?.destroy(); this.socket?.terminate(); this.emit('closed', reason);

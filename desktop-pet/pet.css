@@ -19,7 +19,9 @@ body[data-orbit=true] .pet { position: absolute; width: 256px; left: 0; top: 48p
 .handle span { width: 28px; height: 4px; border-radius: 5px; background: #79877b80; }
 .hide { position: absolute; top: 16px; right: 26px; width: 23px; height: 23px; border: 0; background: #fffdf7ea; color: #7a837d; border-radius: 50%; font-size: 18px; cursor: pointer; z-index: 4; }
 .portrait { display: block; cursor: pointer; padding: 0; border: 0; position: relative; margin: 0 auto -13px; width: 142px; height: 142px; border-radius: 50%; background: #fffdf7; box-shadow: 0 8px 24px #172b2020, 0 0 0 4px #fffdf7d9; z-index: 2; }
-.portrait video, .portrait img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+/* Clip composited video inside its own layer; keep badges and the outer shadow unclipped. */
+.portrait-media { position: absolute; inset: 0; display: block; overflow: hidden; border-radius: 50%; clip-path: circle(50% at 50% 50%); isolation: isolate; background: #fffdf7; }
+.portrait-media video, .portrait-media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; clip-path: circle(50% at 50% 50%); }
 video { opacity: 0; transition: opacity .3s; } video.ready { opacity: 1; }
 .dot { position: absolute; top: 141px; left: 171px; width: 28px; height: 28px; padding: 7px; border: 0; background: transparent; border-radius: 50%; cursor: pointer; z-index: 3; -webkit-app-region: no-drag; --dot-color: #a0a7aa; }
 .dot::before { content: ''; display: block; box-sizing: border-box; width: 14px; height: 14px; border: 3px solid #fffef9; background: var(--dot-color); border-radius: 50%; }

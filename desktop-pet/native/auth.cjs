@@ -1,5 +1,7 @@
 'use strict';
 const { Cookie, CookieJar } = require('tough-cookie');
+const { networkCode } = require('../diagnostics.cjs');
+const { nativeFetch, PROXY_ERRORS } = require('../system-network.cjs');
 const ORIGIN = 'https://muse.ai';
 const ALLOWED_PATHS = new Set(['/api/session', '/api/hatch/token']);
 const cookieAllowed = name => /^(?:(?:__Host|__Secure)-)?hatch[_-]/.test(name);
@@ -27,7 +29,7 @@ function validateTarget(target) {
   return { vmId: target.vmId, vmName: target.vmName || target.vmId, gatewayUrl: url.toString() };
 }
 class NativeAuth {
-  constructor(vault, { fetchImpl = fetch } = {}) {
+  constructor(vault, { fetchImpl = nativeFetch } = {}) {
     this.vault = vault; this.bundle = vault.load(); this.target = validateTarget(this.bundle.target);
     this.jar = CookieJar.deserializeSync(this.bundle.cookieJar); this.fetch = fetchImpl;
     this.token = null; this.lastSessionRenewal = 0;
@@ -54,7 +56,10 @@ class NativeAuth {
     let response;
     try { response = await this.fetch(url, { method: body ? 'POST' : 'GET', headers,
       body: body ? JSON.stringify(body) : undefined, redirect: 'manual', signal: AbortSignal.timeout(15000) }); }
-    catch { throw new Error('auth_network_error'); }
+    catch (cause) {
+      const error = new Error(PROXY_ERRORS.has(cause.message) ? cause.message : 'auth_network_error');
+      error.networkCode = cause.networkCode ?? networkCode(cause); throw error;
+    }
     if ([301, 302, 303, 307, 308, 401, 403].includes(response.status)) {
       const error = new Error('authorization_required');
       error.httpStatus = response.status;
@@ -70,7 +75,9 @@ class NativeAuth {
         : /expir/.test(hint) ? 'expired_session' : /session|auth|login/.test(hint) ? 'session_rejected' : 'unspecified_rejection';
       throw error;
     }
-    if (!response.ok) throw new Error('auth_service_error');
+    if (!response.ok) {
+      const error = new Error('auth_service_error'); error.httpStatus = response.status; throw error;
+    }
     let changed = false;
     for (const raw of response.headers.getSetCookie()) {
       try {

@@ -51,6 +51,7 @@ class ChromeEngine {
   async launch() {
     const executablePath = this.executablePath ?? findChrome();
     if (!executablePath) throw new Error('supported_browser_missing');
+    this.executablePath = executablePath;
     fs.mkdirSync(this.profileDirectory, { recursive: true, mode: 0o700 });
     const { default: puppeteer } = await import('puppeteer-core');
     const args = browserLaunchArgs(this.profileDirectory);

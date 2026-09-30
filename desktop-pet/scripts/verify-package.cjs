@@ -12,7 +12,8 @@ async function main() {
   const archive = path.join(directory, 'win-unpacked', 'resources', 'app.asar');
   const entries = asar.listPackage(archive).map(value => value.replace(/\\/g, '/'));
   for (const required of ['/main.cjs', '/pet.html', '/composer.html', '/pcm-worklet.js', '/visible-browser.cjs', '/assets/muse.png', '/assets/muse.ico',
-    '/native/accounts.cjs', '/native/source.cjs', '/native/vault.cjs', '/native/wire.cjs',
+    '/diagnostics.cjs', '/system-network.cjs', '/native/accounts.cjs', '/native/source.cjs', '/native/vault.cjs', '/native/wire.cjs',
+    '/node_modules/https-proxy-agent/package.json', '/node_modules/socks-proxy-agent/package.json',
     '/workspace-ui.js', '/workspace.css', '/sessions-ui.js', '/audio-player.js', '/input-ui.js',
     '/capture-ui.js', '/crop-geometry.js', '/capture-screen.cjs', '/input-attachments.cjs', '/notifications.cjs', '/preferences.cjs',
     '/native/workspace.cjs', '/native/spaces.cjs', '/native/conversations.cjs', '/native/thread-chat.cjs', '/native/chat-input.cjs',

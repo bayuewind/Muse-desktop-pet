@@ -24,6 +24,10 @@ const OFFICIAL_PAGES = Object.freeze({ chat: 'https://muse.ai/', goals: 'https:/
   ideas: 'https://muse.ai/ideas', library: 'https://muse.ai/library/artifacts' });
 
 const smoke = process.argv.includes('--smoke-test');
+const { LoginDiagnostics } = require('./diagnostics.cjs');
+const loginDiagnostics = new LoginDiagnostics({ version: app.getVersion() });
+const diagnostic = value => loginDiagnostics.record(value);
+let exportingDiagnostics = false;
 app.setName('Muse 桌宠');
 if (process.platform === 'win32') app.setAppUserModelId('com.bayuewind.muse-desktop-pet');
 app.setPath('userData', path.join(app.getPath('appData'), smoke ? 'MuseDesktopPet-Smoke' : 'MuseDesktopPet'));
@@ -213,6 +217,7 @@ function accountItems() {
     { label: '登录 Muse…', enabled: ready && phase === 'signed_out', click: () => void runAccountAction('login') },
     { label: '手动检查并连接（备用）', enabled: ready && phase === 'awaiting_login', click: () => void runAccountAction('complete') },
     { label: '取消登录', enabled: ready && phase === 'awaiting_login', click: () => void runAccountAction('cancel') },
+    { label: '导出脱敏诊断报告…', click: () => void exportLoginDiagnostics() },
     { type: 'separator' },
     { label: '切换账号…', enabled: ready && phase === 'connected', click: () => void runAccountAction('switch') },
     { label: phase === 'cleanup_failed' ? '重试清除本机授权…' : '登出当前账号…', enabled: ready && ['connected','cleanup_failed'].includes(phase), click: () => void runAccountAction('logout') },
@@ -238,6 +243,23 @@ function updateMenus() {
     { label: '窗口', submenu: [{ role: 'minimize' }, { role: 'zoom' }] },
   ]));
 }
+async function exportLoginDiagnostics() {
+  if (exportingDiagnostics || quitting) return;
+  exportingDiagnostics = true;
+  try {
+    const result = await dialog.showSaveDialog({ title: '导出脱敏诊断报告',
+      defaultPath: path.join(app.getPath('downloads'), `Muse-diagnostics-${Date.now()}.json`),
+      filters: [{ name: 'JSON 诊断报告', extensions: ['json'] }] });
+    if (result.canceled || !result.filePath) return;
+    await fs.promises.writeFile(result.filePath, JSON.stringify(loginDiagnostics.report(accounts), null, 2) + '\n',
+      { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    await dialog.showMessageBox({ type: 'info', message: '诊断报告已导出',
+      detail: '可将这个 JSON 文件发给维护者。报告仅含本次运行的版本、登录阶段和脱敏错误码，不含登录凭据及聊天内容。' });
+  } catch (error) {
+    await dialog.showMessageBox({ type: 'error', message: '诊断报告未保存',
+      detail: error.code === 'EEXIST' ? '文件已存在，请换一个文件名，已有文件未被覆盖。' : '请检查保存目录是否可写，然后重新导出。' });
+  } finally { exportingDiagnostics = false; }
+}
 async function runAccountAction(action) {
   if (!nativeMode || !accounts || quitting || accountAction) return;
   accountAction = true; updateMenus();
@@ -257,8 +279,15 @@ async function runAccountAction(action) {
     }
     if (action === 'complete') await accounts.complete();
   } catch {
-    if (!quitting) await dialog.showMessageBox({ type: 'error', title: '账号操作未完成', message: accounts.phase === 'cleanup_failed' ? '本机授权或专用登录资料未能完全清除。' : '尚未完成登录或原生身份验证。',
-      detail: accounts.phase === 'cleanup_failed' ? '连接已停止；请从账号菜单重试清除，不会自动恢复连接。' : '请确认专用窗口已登录并进入 Muse 聊天。正常情况下会自动连接；也可从账号菜单「手动检查并连接（备用）」重试。不支持的 VM 身份验证不会被跳过。' });
+    if (!quitting) {
+      const failure = accounts.lastFailure;
+      const result = await dialog.showMessageBox({ type: 'error', title: '账号操作未完成',
+        message: accounts.phase === 'cleanup_failed' ? '本机授权或专用登录资料未能完全清除。' : '尚未完成登录或原生身份验证。',
+        detail: (failure ? `阶段：${failure.stage}\n错误码：${failure.code}${failure.httpStatus ? `（HTTP ${failure.httpStatus}）` : ''}\n\n` : '') +
+          (accounts.phase === 'cleanup_failed' ? '连接已停止；请从账号菜单重试清除。' : '网页登录成功不代表原生连接验证完成。不支持的 VM 身份验证不会被跳过。'),
+        buttons: ['确定', '导出诊断报告…'], defaultId: 0, cancelId: 0 });
+      if (result.response === 1) await exportLoginDiagnostics();
+    }
   } finally { accountAction = false; updateMenus(); }
 }
 async function poll() {
@@ -315,7 +344,7 @@ async function createWindows() {
   const { workArea } = screen.getPrimaryDisplay();
   petWindow = new BrowserWindow({
     width: 256, height: 306, x: workArea.x + workArea.width - 288, y: workArea.y + workArea.height - 344,
-    title: 'Muse 桌宠', frame: false, transparent: true, resizable: false, icon: appIconPath,
+    title: 'Muse 桌宠', frame: false, transparent: true, backgroundColor: '#00000000', resizable: false, icon: appIconPath,
     hasShadow: false, alwaysOnTop: true, skipTaskbar: true, show: false,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false,
       contextIsolation: true, sandbox: true, backgroundThrottling: false, webSecurity: true },
@@ -349,7 +378,8 @@ async function createWindows() {
     const { NativeSource } = require('./native/source.cjs');
     const { Accounts } = require('./native/accounts.cjs');
     const directory = app.getPath('userData'), vault = new CredentialVault(directory, safeStorage);
-    accounts = new Accounts({ vault, makePairing: () => new (require('./native/account-pairing.cjs').AccountPairing)(directory),
+    accounts = new Accounts({ vault, diagnostic,
+      makePairing: () => new (require('./native/account-pairing.cjs').AccountPairing)(directory, { diagnostic }),
       makeSource: () => {
         const source = new NativeSource(vault);
         source.on('state', state => { if (accounts.source === source) { nativeState = state; publish(); } });
@@ -390,7 +420,8 @@ async function createWindows() {
           await fs.promises.rm(profile, { recursive: true, force: true });
         }
       },
-      changed: account => {
+        changed: account => {
+          diagnostic({ stage: 'account', status: 'state', phase: account.phase, detection: account.loginDetection });
         engine = account.source;
         if (account.phase !== 'connected') {
           const labels = { signed_out: '尚未登录 Muse', clearing: '正在清除本机登录', cleanup_failed: '本机登出未完成',
@@ -437,6 +468,16 @@ async function runSmoke() {
     const { CredentialVault } = require('./native/vault.cjs');
     const { default: browserDriver } = await import('puppeteer-core');
     if ([Accounts, AccountPairing, NativeSource, CredentialVault, browserDriver.connect].some(value => typeof value !== 'function')) throw new Error('missing_packaged_dependencies');
+    const proxyFixture = require('electron').session.fromPartition('muse-proxy-smoke');
+    await proxyFixture.setProxy({ mode: 'fixed_servers', proxyRules: 'http=127.0.0.1:17890;https=127.0.0.1:17890' });
+    const { SystemNetwork } = require('./system-network.cjs');
+    const proxyNetwork = new SystemNetwork({ resolveProxy: url => proxyFixture.resolveProxy(url) });
+    for (const [url, transport] of [['https://muse.ai/api/session', 'https'], ['wss://hatch.metaaivm.com/v1/noise', 'wss']]) {
+      const selected = await proxyNetwork.connection(url, transport);
+      selected.agent.destroy();
+      if (selected.route !== 'http_proxy') throw new Error('packaged_system_proxy_resolution_failed');
+    }
+    console.log('PROXY_RESOLVER_PASS: Electron resolves HTTPS + WSS to explicit proxy agents; isolated fixture; no remote request');
     if (process.platform === 'win32') {
       const fixture = 'Muse smoke: synthetic local encryption fixture';
       const encrypted = safeStorage.encryptString(fixture);
@@ -457,6 +498,15 @@ async function runSmoke() {
     // Report flags, not session data, and do not launch a remote login in smoke mode.
     const preferences = petWindow.webContents.getLastWebPreferences();
     if (!preferences.sandbox || !preferences.contextIsolation || preferences.nodeIntegration) throw new Error('unsafe_preferences');
+    const avatarClip = await petWindow.webContents.executeJavaScript(`(() => {
+      const media = document.querySelector('.portrait-media'), badge = document.querySelector('#unread');
+      const style = media && getComputedStyle(media);
+      return !!media && style.overflow === 'hidden' && style.clipPath.startsWith('circle(') &&
+        style.isolation === 'isolate' && media.contains(document.querySelector('#avatar')) &&
+        media.contains(document.querySelector('#still')) && !media.contains(badge);
+    })()`);
+    if (!avatarClip) throw new Error('avatar_clip_missing');
+    if (process.argv.includes('--avatar-test')) await require('./scripts/avatar-smoke.cjs').runAvatarSmoke(petWindow);
     await createComposer();
     await petWindow.webContents.executeJavaScript('document.querySelector("#menu-dot").click()');
     await new Promise(resolve => setTimeout(resolve, 250));
@@ -756,7 +806,12 @@ else {
   process.on('SIGTERM', () => app.quit());
   process.on('SIGINT', () => app.quit());
   app.on('second-instance', () => { showPet(); void showComposer(); });
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
+    const networkSession = require('electron').session.fromPartition('muse-native-network');
+    await networkSession.setProxy({ mode: 'system' });
+    require('./system-network.cjs').configureSystemNetwork({
+      resolveProxy: url => networkSession.resolveProxy(url), diagnostic,
+    });
     preferences = new Preferences(app.getPath('userData'));
     powerMonitor.on('suspend', () => { suspended = true; cancelVoice(); if (nativeMode) void engine?.pause(); else invalidate(); });
     powerMonitor.on('resume', () => { suspended = false; if (nativeMode) void engine?.reload(); else { invalidate(); void poll(); } });

@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/bayuewind/Muse-desktop-pet/releases/tag/v0.1.1"><img src="https://img.shields.io/badge/release-v0.1.1%20preview-7C956B?style=flat-square" alt="Release v0.1.1 preview"></a>
+  <a href="https://github.com/bayuewind/Muse-desktop-pet/releases/tag/v0.2.3"><img src="https://img.shields.io/badge/release-v0.2.3%20preview-7C956B?style=flat-square" alt="Release v0.2.3 preview"></a>
   <a href="#download"><img src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square" alt="Windows x64"></a>
   <a href="#development"><img src="https://img.shields.io/badge/macOS-source%20build-555555?style=flat-square" alt="macOS 源码运行"></a>
   <a href="https://www.electronjs.org/"><img src="https://img.shields.io/badge/built%20with-Electron-47848F?style=flat-square" alt="Built with Electron"></a>
@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/bayuewind/Muse-desktop-pet/releases/download/v0.1.1/Muse-Desktop-Pet-0.1.1-win-x64-setup.exe"><strong>下载 Windows 版</strong></a>
+  <a href="https://github.com/bayuewind/Muse-desktop-pet/releases/download/v0.2.3/Muse-Desktop-Pet-0.2.3-win-x64-setup.exe"><strong>下载 Windows 版</strong></a>
   · <a href="https://muse.ai/">注册 / 登录 Muse</a>
   · <a href="#getting-started">开始使用</a>
   · <a href="https://github.com/bayuewind/Muse-desktop-pet/issues">反馈问题</a>
@@ -59,8 +59,8 @@
 
 ## 不只是一张会动的头像
 
-**本地开发版 0.2.0** 新增任务中心、近期成果、目标/灵感、文件与裁切截图、提醒设置和已有旁聊隔离。
-它尚未发布到 GitHub，下面的下载链接仍为 0.1.1；新功能、测试范围和本地验收步骤见 [0.2.0 说明](docs/releases/v0.2.0.md)。
+**0.2.3 测试版** 包含任务中心、近期成果、目标/灵感、文件与裁切截图、提醒设置和已有旁聊隔离，
+并增加系统代理支持、脱敏诊断报告及头像白框裁剪修复。更新与验收范围见 [0.2.3 发布说明](docs/releases/v0.2.3.md)。
 
 | 功能 | 桌宠里的体验 |
 | --- | --- |
@@ -78,11 +78,11 @@
 
 | 平台 | 获取方式 | 当前状态 |
 | --- | --- | --- |
-| Windows x64 | **[下载安装包](https://github.com/bayuewind/Muse-desktop-pet/releases/download/v0.1.1/Muse-Desktop-Pet-0.1.1-win-x64-setup.exe)** | v0.1.1 · 未签名测试版 · 自带运行环境 |
+| Windows x64 | **[下载安装包](https://github.com/bayuewind/Muse-desktop-pet/releases/download/v0.2.3/Muse-Desktop-Pet-0.2.3-win-x64-setup.exe)** | v0.2.3 · 未签名测试版 · 自带运行环境 |
 | macOS | [从源码运行](#development) | 暂无 DMG；打包、签名与公证尚未配置 |
 | 其他平台 / 架构 | — | 暂未提供安装包或完成验收 |
 
-[发布说明](https://github.com/bayuewind/Muse-desktop-pet/releases/tag/v0.1.1) · [SHA-256 校验文件](https://github.com/bayuewind/Muse-desktop-pet/releases/download/v0.1.1/Muse-Desktop-Pet-0.1.1-win-x64-setup.exe.sha256) · [全部版本](https://github.com/bayuewind/Muse-desktop-pet/releases)
+[发布说明](https://github.com/bayuewind/Muse-desktop-pet/releases/tag/v0.2.3) · [SHA-256 校验文件](https://github.com/bayuewind/Muse-desktop-pet/releases/download/v0.2.3/Muse-Desktop-Pet-0.2.3-win-x64-setup.exe.sha256) · [全部版本](https://github.com/bayuewind/Muse-desktop-pet/releases)
 
 > [!NOTE]
 > Windows 用户下载 `.exe` 即可，不需要安装 Node.js，也不需要运行 npm。Releases 中的 `Source code` 是开发者使用的源码压缩包，不是安装程序。
@@ -244,6 +244,9 @@ Electron 用来显示桌宠。当前登录适配使用真实浏览器的独立�
 ## 反馈与参与
 
 欢迎通过 [Issues](https://github.com/bayuewind/Muse-desktop-pet/issues) 反馈问题或提出建议，也欢迎提交改进文档和代码的 Pull Request。
+
+登录失败时，0.2.1 起可通过「账号 → 导出脱敏诊断报告…」保存本次运行的 JSON 报告。请在退出桌宠前导出，具体步骤和反馈模板见[登录故障排查](docs/login-troubleshooting.md)。
+0.2.2 起桌面程序的原生 HTTPS / WebSocket 连接显式使用系统代理解析结果，报告同时记录选择的代理类型及请求结果，不记录代理地址或凭据。
 
 反馈时尽量包含：系统与架构、桌宠版本、复现步骤、预期 / 实际表现，以及**脱敏后**的截图或错误信息。涉及凭据、个人聊天或隐私的问题，请勿附带原始会话目录、Cookie、令牌或完整日志。
 

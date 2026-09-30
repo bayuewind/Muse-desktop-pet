@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/bayuewind/Muse-desktop-pet/releases/tag/v0.1.1"><img src="https://img.shields.io/badge/release-v0.1.1%20preview-7C956B?style=flat-square" alt="Release v0.1.1 preview"></a>
+  <a href="https://github.com/bayuewind/Muse-desktop-pet/releases/tag/v0.2.3"><img src="https://img.shields.io/badge/release-v0.2.3%20preview-7C956B?style=flat-square" alt="Release v0.2.3 preview"></a>
   <a href="#download"><img src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square" alt="Windows x64"></a>
   <a href="#development"><img src="https://img.shields.io/badge/macOS-source%20build-555555?style=flat-square" alt="macOS source build"></a>
   <a href="https://www.electronjs.org/"><img src="https://img.shields.io/badge/built%20with-Electron-47848F?style=flat-square" alt="Built with Electron"></a>
@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/bayuewind/Muse-desktop-pet/releases/download/v0.1.1/Muse-Desktop-Pet-0.1.1-win-x64-setup.exe"><strong>Download for Windows</strong></a>
+  <a href="https://github.com/bayuewind/Muse-desktop-pet/releases/download/v0.2.3/Muse-Desktop-Pet-0.2.3-win-x64-setup.exe"><strong>Download for Windows</strong></a>
   · <a href="https://muse.ai/">Sign up / Log in to Muse</a>
   · <a href="#getting-started">Get started</a>
   · <a href="https://github.com/bayuewind/Muse-desktop-pet/issues">Report an issue</a>
@@ -61,9 +61,9 @@ Drag the small bar above the character to move it. Click the character to open o
 
 ## More than an animated avatar
 
-**Local development build 0.2.0** adds a task center, recent results, goals and ideas, file and cropped-screenshot input,
-notification preferences, and isolated existing thread chats. It has not been published to GitHub; download links below
-still refer to 0.1.1. See the [0.2.0 acceptance notes](docs/releases/v0.2.0.md) (Chinese) for verified scope and remaining live checks.
+**Preview 0.2.3** includes a task center, recent results, goals and ideas, file and cropped-screenshot input,
+notification preferences, and isolated existing thread chats. It also adds system proxy support, sanitized diagnostic
+reports, and an avatar clipping fix. See the [0.2.3 release notes](docs/releases/v0.2.3.md) (Chinese) for validation scope.
 
 | Feature | What you get |
 | --- | --- |
@@ -81,11 +81,11 @@ still refer to 0.1.1. See the [0.2.0 acceptance notes](docs/releases/v0.2.0.md) 
 
 | Platform | Get it | Current status |
 | --- | --- | --- |
-| Windows x64 | **[Download the installer](https://github.com/bayuewind/Muse-desktop-pet/releases/download/v0.1.1/Muse-Desktop-Pet-0.1.1-win-x64-setup.exe)** | v0.1.1 · Unsigned preview · Runtime included |
+| Windows x64 | **[Download the installer](https://github.com/bayuewind/Muse-desktop-pet/releases/download/v0.2.3/Muse-Desktop-Pet-0.2.3-win-x64-setup.exe)** | v0.2.3 · Unsigned preview · Runtime included |
 | macOS | [Run from source](#development) | No DMG yet; packaging, signing, and notarization are not configured |
 | Other platforms / architectures | — | No installers or completed validation yet |
 
-[Release notes](https://github.com/bayuewind/Muse-desktop-pet/releases/tag/v0.1.1) · [SHA-256 checksum](https://github.com/bayuewind/Muse-desktop-pet/releases/download/v0.1.1/Muse-Desktop-Pet-0.1.1-win-x64-setup.exe.sha256) · [All releases](https://github.com/bayuewind/Muse-desktop-pet/releases)
+[Release notes](https://github.com/bayuewind/Muse-desktop-pet/releases/tag/v0.2.3) · [SHA-256 checksum](https://github.com/bayuewind/Muse-desktop-pet/releases/download/v0.2.3/Muse-Desktop-Pet-0.2.3-win-x64-setup.exe.sha256) · [All releases](https://github.com/bayuewind/Muse-desktop-pet/releases)
 
 > [!NOTE]
 > Windows users only need the `.exe`; you do not need to install Node.js or run npm. The `Source code` archives on the Releases page are for developers, not application installers.
